@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getTournamentMeta } from "@/lib/authStore";
 import { galleryRoleFor, isGalleryAdmin } from "@/lib/galleryAuth";
 import {
   ActionError,
@@ -8,6 +9,8 @@ import {
   removeGalleryPhoto,
   updateGalleryPhoto,
 } from "@/lib/galleryStore";
+import { canOrganise } from "@/lib/membership";
+import { isSuperadminEmail, requireUser } from "@/lib/session";
 import { loadState } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -26,8 +29,13 @@ function parseIds(body: Record<string, unknown>): string[] {
 
 export async function POST(req: Request) {
   const pin = req.headers.get("x-pin");
-  const role = galleryRoleFor(pin);
-  if (!isGalleryAdmin(role)) return err("Admin PIN required", 403);
+  let role = galleryRoleFor(pin);
+  const auth = await requireUser(req);
+  if (!("error" in auth) && !isGalleryAdmin(role)) {
+    // Organiser / superadmin session can moderate without PIN.
+    role = "admin";
+  }
+  if (!isGalleryAdmin(role)) return err("Organiser sign-in or admin PIN required", 403);
 
   let body: Record<string, unknown>;
   try {
@@ -43,6 +51,12 @@ export async function POST(req: Request) {
 
   const state = await loadState(typeof body.season === "string" ? body.season : null);
   const prefix = state.tournamentKey;
+  if (!("error" in auth)) {
+    const meta = await getTournamentMeta(prefix);
+    if (!isSuperadminEmail(auth.user.email) && !canOrganise(meta, auth.user) && !galleryRoleFor(pin)) {
+      return err("Not allowed for this tournament", 403);
+    }
+  }
 
   try {
     if (action === "delete") {

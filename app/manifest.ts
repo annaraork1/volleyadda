@@ -3,8 +3,8 @@ import { loadState } from "@/lib/store";
 
 /** Dynamic web app manifest — name follows the active season. */
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
-  let name = "TNHVPL";
-  let shortName = "TNHVPL";
+  let name = "VolleyAdda";
+  let shortName = "VolleyAdda";
   try {
     const state = await loadState();
     name = state.meta?.name || state.config.tournament.name || name;
@@ -16,7 +16,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
   return {
     name,
     short_name: shortName,
-    description: "Live scores, fixtures and points table for TNH Volleyball",
+    description: "Live volleyball scores, tournaments, auctions and galleries",
     start_url: "/",
     display: "standalone",
     // "any" = follow the phone’s autorotate (portrait + landscape). Do not use portrait-primary.

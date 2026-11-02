@@ -27,9 +27,17 @@ function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
-function isAdmin(req: Request) {
+async function isAdmin(req: Request) {
   const pin = req.headers.get("x-pin");
-  return Boolean(ADMIN_PIN && pin && pin === ADMIN_PIN);
+  if (ADMIN_PIN && pin && pin === ADMIN_PIN) return true;
+  try {
+    const { requireUser, isSuperadminEmail } = await import("@/lib/session");
+    const auth = await requireUser(req);
+    if (!("error" in auth) && isSuperadminEmail(auth.user.email)) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 const isSide = (s: unknown): s is Side => s === "A" || s === "B";
@@ -50,7 +58,7 @@ export async function POST(req: Request) {
   }
   const type = String(body.type ?? "");
   const hostToken = typeof body.hostToken === "string" ? body.hostToken : null;
-  const admin = isAdmin(req);
+  const admin = await isAdmin(req);
 
   try {
     if (type === "create") {

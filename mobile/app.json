@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "VolleyAdda",
+    "slug": "volleyadda",
+    "version": "1.0.0",
+    "scheme": "volleyadda",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#070B16",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.volleyadda.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "VolleyAdda uses your photos so you can upload match pictures to the gallery.",
+        "NSCameraUsageDescription": "VolleyAdda uses the camera so you can take match pictures for the gallery."
+      }
+    },
+    "android": {
+      "package": "com.volleyadda.app",
+      "backgroundColor": "#070B16",
+      "adaptiveIcon": {
+        "backgroundColor": "#070B16",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#070B16",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "VolleyAdda uses your photos so you can upload match pictures to the gallery.",
+          "cameraPermission": "VolleyAdda uses the camera so you can take match pictures for the gallery."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

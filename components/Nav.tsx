@@ -16,6 +16,8 @@ const LINKS = [
   { href: "/practice", label: "Practice" },
   { href: "/seasons", label: "Seasons" },
   { href: "/rules", label: "Rules" },
+  { href: "/report", label: "Report" },
+  { href: "/auth/login", label: "Account" },
 ];
 
 export function Nav() {
@@ -25,7 +27,7 @@ export function Nav() {
   // Live scoring uses a fixed fullscreen .scorer that covers the nav.
   if (path.startsWith("/display") || path.startsWith("/auction/projector") || /^\/score\/.+/.test(path)) return null;
   const logo = state?.meta?.logo || DEFAULT_LOGO;
-  const short = state?.meta?.short ?? state?.config.tournament.short ?? "TNHVPL";
+  const short = state?.meta?.short ?? state?.config.tournament.short ?? "VolleyAdda";
   const subtitle = state?.meta?.subtitle ?? state?.config.tournament.subtitle ?? "";
   const seasonLabel = subtitle.includes("Season")
     ? subtitle.split("·").pop()?.trim() || subtitle

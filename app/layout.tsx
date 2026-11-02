@@ -16,8 +16,8 @@ export const viewport: Viewport = {
 };
 
 export async function generateMetadata(): Promise<Metadata> {
-  let title = "TNHVPL";
-  let appleTitle = "TNHVPL";
+  let title = "VolleyAdda";
+  let appleTitle = "VolleyAdda";
   try {
     const state = await loadState();
     title = state.meta?.name || state.config.tournament.name || title;
@@ -28,7 +28,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title,
-    description: "Live scores, fixtures and points table for TNH Volleyball",
+    description: "Live volleyball scores, tournaments, auctions and galleries",
     applicationName: title,
     appleWebApp: {
       capable: true,

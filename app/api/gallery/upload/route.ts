@@ -29,9 +29,9 @@ async function readPart(form: FormData, name: string): Promise<{ data: Buffer; c
 }
 
 export async function POST(req: Request) {
-  let form: FormData;
+  let form: globalThis.FormData;
   try {
-    form = await req.formData();
+    form = (await req.formData()) as globalThis.FormData;
   } catch {
     return err("Bad upload", 400);
   }
