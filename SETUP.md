@@ -19,10 +19,11 @@
 
 2. Optional: `RESEND_API_KEY` + `EMAIL_FROM` for verify/reset emails.
 
-3. Optional Google sign-in:
-   - `GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (same value), `GOOGLE_CLIENT_SECRET`
-   - Google Cloud → Web client → Authorized redirect URIs must include
-     `https://volleyadda.vercel.app/api/auth/google/callback` (and `http://localhost:3000/api/auth/google/callback` for local)
+3. Google sign-in (required for the web Google button):
+   - `GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (same value), `GOOGLE_CLIENT_SECRET` on the Vercel project
+   - `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is baked in at **build** time — redeploy after adding/changing it or the button stays hidden
+   - Google Cloud → Web client → Authorized JavaScript origins: `https://volleyadda.vercel.app` (and `http://localhost:3000`)
+   - Authorized redirect URIs: `https://volleyadda.vercel.app/api/auth/google/callback` (and local callback for mobile OAuth)
    - Web uses the GIS button; mobile opens `/api/auth/google/start` then deep-links back with a session
 
 4. Optional: `APPLE_CLIENT_ID` for Apple sign-in.

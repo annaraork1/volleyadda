@@ -35,18 +35,22 @@ function ResetInner() {
   }
 
   return (
-    <form className="card stack" onSubmit={submit} style={{ maxWidth: 420, margin: "40px auto" }}>
-      <h1>Choose a new password</h1>
-      <label>
-        New password
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
-      </label>
-      {error && <p className="err">{error}</p>}
-      <button className="btn primary" type="submit" disabled={busy || !token}>
-        Save password
-      </button>
-      <Link href="/auth/login">Sign in</Link>
-    </form>
+    <div className="auth-page">
+      <form className="card auth-card" onSubmit={submit}>
+        <h1>Choose a new password</h1>
+        <label>
+          New password
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary" type="submit" disabled={busy || !token}>
+          Save password
+        </button>
+        <p className="auth-links">
+          <Link href="/auth/login">Sign in</Link>
+        </p>
+      </form>
+    </div>
   );
 }
 

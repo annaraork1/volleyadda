@@ -223,9 +223,56 @@ button:disabled.busy-pulse {
   height: 1px;
   background: var(--line);
 }
-.google-signin { display: grid; gap: 12px; }
-.google-signin-host { display: flex; justify-content: center; min-height: 44px; }
+.google-signin { display: grid; gap: 12px; width: 100%; }
+.google-signin-host { display: flex; justify-content: center; min-height: 44px; width: 100%; }
+.google-signin-host > div { margin: 0 auto; }
 .google-signin-host iframe { margin: 0 auto; }
+
+/* Auth screens (login / signup / forgot / reset) */
+.auth-page {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 16px 56px;
+  width: 100%;
+}
+.auth-card {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 14px;
+  text-align: left;
+}
+.auth-card h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 1.85rem);
+  line-height: 1.15;
+}
+.auth-card > p {
+  margin: 0;
+  color: var(--muted);
+}
+.auth-card label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.auth-card input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.auth-card .btn {
+  width: 100%;
+  justify-content: center;
+}
+.auth-card .auth-links {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+.auth-card .error { margin: 0; }
 .role-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
 .role-toggle button { border: 0; background: transparent; border-radius: 10px; padding: 10px 12px; font-family: var(--display); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .role-toggle button.on { background: var(--gold); color: var(--bg); }

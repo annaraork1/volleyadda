@@ -37,36 +37,38 @@ export default function SignupPage() {
   }
 
   return (
-    <form className="card stack" onSubmit={submit} style={{ maxWidth: 420, margin: "40px auto" }}>
-      <h1>Join VolleyAdda</h1>
-      <p>Score matches and run volleyball tournaments.</p>
-      <label>
-        Name
-        <input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
-      </label>
-      <label>
-        Email
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-      </label>
-      <label>
-        Password (8+ characters)
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-          autoComplete="new-password"
-        />
-      </label>
-      {error && <p className="error">{error}</p>}
-      <button className="btn primary" type="submit" disabled={busy}>
-        {busy ? "Creating…" : "Create account"}
-      </button>
-      <GoogleSignIn text="signup_with" onError={setError} />
-      <p>
-        Already have an account? <Link href="/auth/login">Sign in</Link>
-      </p>
-    </form>
+    <div className="auth-page">
+      <form className="card auth-card" onSubmit={submit}>
+        <h1>Join VolleyAdda</h1>
+        <p>Score matches and run volleyball tournaments.</p>
+        <label>
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
+        </label>
+        <label>
+          Email
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        </label>
+        <label>
+          Password (8+ characters)
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+            autoComplete="new-password"
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary" type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create account"}
+        </button>
+        <GoogleSignIn text="signup_with" onError={setError} />
+        <p className="auth-links">
+          Already have an account? <Link href="/auth/login">Sign in</Link>
+        </p>
+      </form>
+    </div>
   );
 }

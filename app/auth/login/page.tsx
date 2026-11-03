@@ -47,33 +47,35 @@ function LoginForm() {
   }
 
   return (
-    <form className="card stack" onSubmit={submit} style={{ maxWidth: 420, margin: "40px auto" }}>
-      <h1>Sign in to VolleyAdda</h1>
-      <label>
-        Email
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-      </label>
-      <label>
-        Password
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          autoComplete="current-password"
-        />
-      </label>
-      {error && <p className="error">{error}</p>}
-      <button className="btn primary" type="submit" disabled={busy}>
-        {busy ? "Signing in…" : "Sign in"}
-      </button>
-      <GoogleSignIn next={next} text="signin_with" onError={setError} />
-      <p>
-        <Link href="/auth/signup">Create an account</Link>
-        {" · "}
-        <Link href="/auth/forgot">Forgot password</Link>
-      </p>
-    </form>
+    <div className="auth-page">
+      <form className="card auth-card" onSubmit={submit}>
+        <h1>Sign in to VolleyAdda</h1>
+        <label>
+          Email
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <button className="btn primary" type="submit" disabled={busy}>
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+        <GoogleSignIn next={next} text="signin_with" onError={setError} />
+        <p className="auth-links">
+          <Link href="/auth/signup">Create an account</Link>
+          {" · "}
+          <Link href="/auth/forgot">Forgot password</Link>
+        </p>
+      </form>
+    </div>
   );
 }
 
