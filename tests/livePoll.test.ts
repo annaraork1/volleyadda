@@ -9,6 +9,7 @@ import {
   stateCacheControl,
 } from "../lib/livePoll.ts";
 import { presenceKey, validPresenceId, validViewerId } from "../lib/presence.ts";
+import { REDIS_KEY_PREFIX } from "../lib/redisNs.ts";
 
 describe("livePoll", () => {
   it("uses 1s cadence while live and 3s otherwise", () => {
@@ -41,9 +42,9 @@ describe("livePoll", () => {
 
 describe("presence keys", () => {
   it("scopes tournament presence by season", () => {
-    assert.equal(presenceKey("t", "m1", "s5"), "presence:t:s5:m1");
-    assert.equal(presenceKey("t", "m1", null), "presence:t:default:m1");
-    assert.equal(presenceKey("p", "p1"), "presence:p:p1");
+    assert.equal(presenceKey("t", "m1", "s5"), `${REDIS_KEY_PREFIX}presence:t:s5:m1`);
+    assert.equal(presenceKey("t", "m1", null), `${REDIS_KEY_PREFIX}presence:t:default:m1`);
+    assert.equal(presenceKey("p", "p1"), `${REDIS_KEY_PREFIX}presence:p:p1`);
   });
 
   it("validates ids", () => {

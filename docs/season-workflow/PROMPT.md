@@ -22,7 +22,7 @@ Each stage is locked once the season moves on, and the admin can override that. 
 3. **Follow the existing patterns.** Don't invent new ones:
    - Storage: `lib/store.ts`, with `readRaw`, `update()` (CAS with a Lua script, versioned docs `{ v }`), `ActionError`, the memory fallback and the `KV_*` / `UPSTASH_*` / `tnhvpl_KV_*` env names.
    - Season scoping: `resolveTournamentKey`, `loadState(season)`, keys `{tournamentKey}:…`, `?season=` via `seasonHref`/`withSeason` in `LiveProvider`, and `body.season` on actions.
-   - Separate namespace per feature, like `lib/practiceStore.ts` (`tnhvpl:practice:*`). Auction and registration data live under the **season** prefix, never in `{key}:config` except where stated below.
+   - Separate namespace per feature, like `lib/practiceStore.ts` (`practice:*`, physically under `REDIS_KEY_PREFIX`). Auction and registration data live under the **season** prefix, never in `{key}:config` except where stated below.
    - Pure logic in `lib/*.ts` with unit tests in `tests/*.test.ts` (`node --experimental-strip-types --test`), the way `lib/engine.ts` is event-sourced and tested.
    - UI: reuse the `app/globals.css` tokens and classes (`card`, `btn gold`, `pill`, `kicker`, `mrow`, `skill Advanced|Intermediate|Beginner`, `.scorer` full-screen pattern), the `Loading` / `PinGate` / `StaffLogin` components, `ProcessingBar` and `lib/confirm.ts`. Phone first.
    - Images: resize client-side like `lib/logoUpload.ts` (`fileToLogoDataUrl`).

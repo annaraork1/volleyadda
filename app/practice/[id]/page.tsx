@@ -14,12 +14,12 @@ import { TimeoutOverlay } from "@/components/TimeoutOverlay";
 import { WatchingLine, usePresence } from "@/components/Watching";
 import { WhistleButton } from "@/components/WhistleButton";
 import { Loading } from "@/components/ui";
-import { useLive } from "@/components/LiveProvider";
 import { askConfirm } from "@/lib/confirm";
 import { derive, other } from "@/lib/engine";
 import { formatEventLog } from "@/lib/formatEvents";
-import { fetchPractice, practiceAct } from "@/lib/practiceApi";
-import { clearHostToken, getHostToken } from "@/lib/practiceHost";
+import { PracticeInvitePanel } from "@/components/PracticeInvitePanel";
+import { fetchPractice, practiceAct, practiceClaimScorer } from "@/lib/practiceApi";
+import { clearHostToken, getHostToken, getScorerToken, saveScorerToken } from "@/lib/practiceHost";
 import type { PracticeMatchPublic } from "@/lib/practiceTypes";
 import { pressureBallForSide } from "@/lib/pressureBall";
 import { adjustEvent } from "@/lib/scoreAdjust";
@@ -91,17 +91,15 @@ function SideMark({ side, label, size = 48 }: { side: Side; label: string; size?
 export default function PracticeMatchPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const live = useLive();
-  const role = live.role;
   const [match, setMatch] = useState<PracticeMatchPublic | null>(null);
   const [state, setState] = useState<MatchState | null>(null);
   const [hostToken, setHostToken] = useState<string | null>(null);
+  const [scorerToken, setScorerToken] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<ScoreOp[]>([]);
   const [flip, setFlip] = useState(false);
-  const [adminPin, setAdminPin] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [dropConfirmOpen, setDropConfirmOpen] = useState(false);
   const [updatedAt, setUpdatedAt] = useState(0);
@@ -119,10 +117,23 @@ export default function PracticeMatchPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search).get("scorerToken");
+    if (q) {
+      saveScorerToken(id, q);
+      setScorerToken(q);
+      void practiceClaimScorer(id, q).catch(() => {});
+    } else {
+      setScorerToken(getScorerToken(id));
+    }
+  }, [id]);
+
   const reload = useCallback(async () => {
     const token = getHostToken(id);
     setHostToken(token);
-    const r = await fetchPractice(id, token);
+    if (!scorerToken) setScorerToken(getScorerToken(id));
+    const r = await fetchPractice(id, token, getScorerToken(id));
     if (!r.ok) {
       setError(r.error);
       setMatch(null);
@@ -165,7 +176,10 @@ export default function PracticeMatchPage() {
   const act = async (body: Record<string, unknown>, pin?: string) => {
     setBusy(true);
     const prev = state;
-    const r = await practiceAct({ ...body, id, hostToken }, { pin });
+    const r = await practiceAct(
+      { ...body, id, hostToken, ...(scorerToken ? { scorerToken } : {}) },
+      { pin },
+    );
     setBusy(false);
     if (!r.ok) {
       flash(r.error);
@@ -190,7 +204,13 @@ export default function PracticeMatchPage() {
       if (navigator.vibrate) navigator.vibrate(op.kind === "undo" ? [20, 40, 20] : 25);
       scoreQueue.current = scoreQueue.current.then(async () => {
         const prevStatus = state?.status;
-        const r = await practiceAct({ type: "score", id, hostToken, ...scoreOpToBody(op) });
+        const r = await practiceAct({
+          type: "score",
+          id,
+          hostToken,
+          ...(scorerToken ? { scorerToken } : {}),
+          ...scoreOpToBody(op),
+        });
         pendingCount.current = Math.max(0, pendingCount.current - 1);
         // Apply server docs before dropping the optimistic op so the pad never flashes
         // back to the pre-tap score for a frame.
@@ -211,7 +231,7 @@ export default function PracticeMatchPage() {
         }
       });
     },
-    [applyMatch, hostToken, id, reload, state?.status],
+    [applyMatch, hostToken, scorerToken, id, reload, state?.status],
   );
 
   const shownEv = useMemo(() => {
@@ -240,24 +260,13 @@ export default function PracticeMatchPage() {
   if (!match) return <Loading />;
 
   const isHost = Boolean(hostToken && match.isHost);
-  const canScore = isHost || match.allowPublicScore;
-  const isAdmin = role === "admin";
-  /** Admin abandon of guest/host matches needs x-pin; prefer staff session PIN. */
-  const adminPinForAct = () =>
-    (adminPin || live.pin || (typeof window !== "undefined" ? localStorage.getItem("tnhvpl-pin") : "") || "").trim();
+  const isInvitedScorer = Boolean(scorerToken || match.isScorer);
+  const canScore = isHost || isInvitedScorer || match.allowPublicScore;
   const color = (s: Side) => (s === "A" ? COLOR_A : COLOR_B);
-  const showAbandon = isHost || isAdmin;
+  const showAbandon = isHost;
 
   const runAbandon = async () => {
-    let pin: string | undefined;
-    if (isAdmin && !isHost) {
-      pin = adminPinForAct() || window.prompt("Admin PIN") || "";
-      if (!pin.trim()) {
-        flash("Admin PIN required to abandon a guest practice");
-        return;
-      }
-    }
-    const ok = await act({ type: "abandon" }, pin);
+    const ok = await act({ type: "abandon" });
     if (ok) {
       setDropConfirmOpen(false);
       clearHostToken(id);
@@ -270,7 +279,7 @@ export default function PracticeMatchPage() {
       open={dropConfirmOpen}
       title="Drop this practice?"
       message="It will not be saved to history. This cannot be undone."
-      confirmLabel={isAdmin && !isHost ? "Drop (admin)" : "Drop"}
+      confirmLabel="Drop"
       cancelLabel="Cancel"
       danger
       busy={busy}
@@ -352,13 +361,13 @@ export default function PracticeMatchPage() {
             </details>
           )}
         </section>
-        <section className="card stack">
-          <h3>Admin — delete from history</h3>
-          <p className="muted" style={{ margin: 0 }}>
-            Permanently removes <b>{match.labelA} vs {match.labelB}</b> from practice history. Type DELETE, enter the
-            admin PIN, then tap the button.
-          </p>
-          <div className="fields">
+        {(hostToken || match.isHost) && (
+          <section className="card stack">
+            <h3>Delete from history</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              Permanently removes <b>{match.labelA} vs {match.labelB}</b> from practice history. Host only — type DELETE
+              to confirm.
+            </p>
             <label>
               Type DELETE to confirm
               <input
@@ -369,50 +378,38 @@ export default function PracticeMatchPage() {
                 aria-label="Type DELETE to confirm"
               />
             </label>
-            <label>
-              Admin PIN
-              <input
-                type="password"
-                placeholder="Admin PIN"
-                value={adminPin}
-                onChange={(e) => setAdminPin(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-          </div>
-          <button
-            className="btn red"
-            type="button"
-            disabled={busy || deleteConfirm !== "DELETE"}
-            onClick={async () => {
-              if (deleteConfirm !== "DELETE") {
-                flash("Type DELETE to confirm");
-                return;
-              }
-              if (!askConfirm(`Delete ${match.labelA} vs ${match.labelB} from practice history? This cannot be undone.`)) {
-                return;
-              }
-              const stored = typeof window !== "undefined" ? localStorage.getItem("tnhvpl-pin") || "" : "";
-              const pin = (adminPin || stored).trim();
-              if (!pin) {
-                flash("Enter admin PIN");
-                return;
-              }
-              setBusy(true);
-              const r = await practiceAct({ type: "delete", id }, { pin });
-              setBusy(false);
-              if (r.ok) {
-                clearHostToken(id);
-                setDeleteConfirm("");
-                router.push("/practice");
-              } else {
-                flash(!r.ok ? r.error : "Delete failed");
-              }
-            }}
-          >
-            {busy ? "Deleting…" : "Delete from history"}
-          </button>
-        </section>
+            <button
+              className="btn red"
+              type="button"
+              disabled={busy || deleteConfirm !== "DELETE"}
+              onClick={async () => {
+                if (deleteConfirm !== "DELETE") {
+                  flash("Type DELETE to confirm");
+                  return;
+                }
+                if (
+                  !askConfirm(
+                    `Delete ${match.labelA} vs ${match.labelB} from practice history? This cannot be undone.`,
+                  )
+                ) {
+                  return;
+                }
+                setBusy(true);
+                const r = await practiceAct({ type: "delete", id, hostToken });
+                setBusy(false);
+                if (r.ok) {
+                  clearHostToken(id);
+                  setDeleteConfirm("");
+                  router.push("/practice");
+                } else {
+                  flash(!r.ok ? r.error : "Delete failed");
+                }
+              }}
+            >
+              {busy ? "Deleting…" : "Delete from history"}
+            </button>
+          </section>
+        )}
         {msg && <div className="toast">{msg}</div>}
       </div>
     );
@@ -482,7 +479,14 @@ export default function PracticeMatchPage() {
             Best of {fmt.bestOf} · sets to {fmt.targets.join("-")} · win by {fmt.winBy} · {fmt.timeouts} timeouts per
             set
           </p>
-          {!canScore && <p className="note">Viewing only — host scores this match.</p>}
+          {!canScore && <p className="note">Viewing only — host or invited scorers can score.</p>}
+          {isHost && hostToken && (
+            <PracticeInvitePanel
+              match={match}
+              hostToken={hostToken}
+              onUpdated={(m) => setMatch(m)}
+            />
+          )}
           <h2>Who serves first?</h2>
           <div className="row" style={{ justifyContent: "center" }}>
             {(["A", "B"] as Side[]).map((s) => (
@@ -504,14 +508,14 @@ export default function PracticeMatchPage() {
             <Link className="btn ghost" href="/practice">
               ← Back to practice
             </Link>
-            {(isHost || isAdmin) && (
+            {isHost && (
               <button
                 className="btn red"
                 type="button"
                 disabled={busy}
                 onClick={() => setDropConfirmOpen(true)}
               >
-                {isAdmin && !isHost ? "Abandon (admin)" : "Abandon"}
+                Abandon
               </button>
             )}
           </div>
@@ -622,10 +626,10 @@ export default function PracticeMatchPage() {
               type="button"
               disabled={busy}
               onClick={() => setDropConfirmOpen(true)}
-              title={isAdmin && !isHost ? "Admin: abandon guest practice" : "Abandon this practice (not saved)"}
-              aria-label={isAdmin && !isHost ? "Abandon practice as admin" : "Abandon practice"}
+              title="Abandon this practice (not saved)"
+              aria-label="Abandon practice"
             >
-              {isAdmin && !isHost ? "Drop (admin)" : "Drop"}
+              Drop
             </button>
           )}
         </div>

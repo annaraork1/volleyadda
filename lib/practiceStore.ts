@@ -9,26 +9,20 @@ import {
   type PracticeMatch,
   type PracticeMatchPublic,
   type PracticePlayer,
+  type PracticeScorerInvite,
   type PracticeSummary,
 } from "./practiceTypes";
+import { nsKey, nsKeys, redisCredentials } from "./redisNs.ts";
 import type { Format, MatchState } from "./types";
 
 export { defaultPracticeFormat, resultFromEvents };
 
-/** Global practice keys — never under a tournament prefix. */
-export const PRACTICE_INDEX_KEY = "tnhvpl:practice:index";
-const practiceMatchKey = (id: string) => `tnhvpl:practice:m:${id}`;
+/** Global practice keys — never under a tournament prefix (Redis ns still applied). */
+export const PRACTICE_INDEX_KEY = "practice:index";
+const practiceMatchKey = (id: string) => `practice:m:${id}`;
 
-const url =
-  process.env.KV_REST_API_URL ||
-  process.env.UPSTASH_REDIS_REST_URL ||
-  process.env.tnhvpl_KV_REST_API_URL;
-const token =
-  process.env.KV_REST_API_TOKEN ||
-  process.env.UPSTASH_REDIS_REST_TOKEN ||
-  process.env.tnhvpl_KV_REST_API_TOKEN;
-
-const redis = url && token ? new Redis({ url, token }) : null;
+const creds = redisCredentials();
+const redis = creds ? new Redis({ url: creds.url, token: creds.token }) : null;
 const g = globalThis as unknown as { __mem?: Map<string, string> };
 const mem = (g.__mem ??= new Map<string, string>());
 
@@ -47,29 +41,32 @@ redis.call('SET', KEYS[1], ARGV[1])
 return 1`;
 
 async function readRaw<T>(keys: string[]): Promise<(T | null)[]> {
+  const physical = nsKeys(keys);
   if (redis) {
-    if (!keys.length) return [];
-    return (await redis.mget<(T | null)[]>(...keys)) as (T | null)[];
+    if (!physical.length) return [];
+    return (await redis.mget<(T | null)[]>(...physical)) as (T | null)[];
   }
-  return keys.map((k) => (mem.has(k) ? (JSON.parse(mem.get(k)!) as T) : null));
+  return physical.map((k) => (mem.has(k) ? (JSON.parse(mem.get(k)!) as T) : null));
 }
 
 async function cas(key: string, value: { v: number }, expected: number): Promise<boolean> {
+  const physical = nsKey(key);
   const json = JSON.stringify(value);
   if (redis) {
-    const r = await redis.eval(CAS, [key], [json, String(expected)]);
+    const r = await redis.eval(CAS, [physical], [json, String(expected)]);
     return Number(r) === 1;
   }
-  const cur = mem.get(key);
+  const cur = mem.get(physical);
   const v = cur ? Number(JSON.parse(cur).v ?? 0) : 0;
   if (v !== expected) return false;
-  mem.set(key, json);
+  mem.set(physical, json);
   return true;
 }
 
 async function delKey(key: string) {
-  if (redis) await redis.del(key);
-  else mem.delete(key);
+  const physical = nsKey(key);
+  if (redis) await redis.del(physical);
+  else mem.delete(physical);
 }
 
 async function updateDoc<T extends { v: number }>(
@@ -169,11 +166,41 @@ function sanitizeFormat(f: unknown): Format {
   };
 }
 
-export function toPublic(m: PracticeMatch, opts?: { hostToken?: string | null }): PracticeMatchPublic {
-  const { hostTokenHash: _, ...rest } = m;
+export type PracticeAuthOpts = {
+  hostToken?: string | null;
+  scorerToken?: string | null;
+  userId?: string | null;
+  emailNorm?: string | null;
+};
+
+function activeScorers(m: PracticeMatch): PracticeScorerInvite[] {
+  return (m.scorers || []).filter((s) => !s.revokedAt);
+}
+
+export function verifyScorer(match: PracticeMatch, opts: PracticeAuthOpts = {}): boolean {
+  const list = activeScorers(match);
+  if (!list.length) return false;
+  if (opts.scorerToken) {
+    const h = hashHostToken(opts.scorerToken);
+    if (list.some((s) => s.tokenHash === h)) return true;
+  }
+  if (opts.userId && list.some((s) => s.claimedUserId === opts.userId)) return true;
+  if (opts.emailNorm && list.some((s) => s.emailNorm && s.emailNorm === opts.emailNorm)) return true;
+  return false;
+}
+
+export function toPublic(m: PracticeMatch, opts?: PracticeAuthOpts): PracticeMatchPublic {
+  const { hostTokenHash: _, scorers, ...rest } = m;
+  const isHost = opts?.hostToken ? hashHostToken(opts.hostToken) === m.hostTokenHash : false;
+  const isScorer = verifyScorer(m, opts || {});
   return {
     ...rest,
-    isHost: opts?.hostToken ? hashHostToken(opts.hostToken) === m.hostTokenHash : false,
+    isHost,
+    isScorer,
+    // Host sees all invites; others only see that they are a scorer (no PII list).
+    scorers: isHost
+      ? (scorers || []).map(({ tokenHash: _t, ...s }) => s)
+      : undefined,
   };
 }
 
@@ -231,6 +258,7 @@ export async function createPractice(input: {
   format?: unknown;
   timeoutSeconds?: number;
   allowPublicScore?: boolean;
+  hostUserId?: string;
 }): Promise<{ match: PracticeMatch; hostToken: string }> {
   const sideA = sanitizePlayers(input.sideA);
   const sideB = sanitizePlayers(input.sideB);
@@ -245,7 +273,9 @@ export async function createPractice(input: {
     mode: input.mode === "quick" ? "quick" : "live",
     createdAt: Date.now(),
     hostTokenHash: hashHostToken(hostToken),
+    hostUserId: input.hostUserId || undefined,
     allowPublicScore: Boolean(input.allowPublicScore),
+    scorers: [],
     labelA: String(input.labelA || "Team A").trim().slice(0, 40) || "Team A",
     labelB: String(input.labelB || "Team B").trim().slice(0, 40) || "Team B",
     sideA,
@@ -264,10 +294,82 @@ export function verifyHost(match: PracticeMatch, hostToken: string | null | unde
   return hashHostToken(hostToken) === match.hostTokenHash;
 }
 
-export function canScore(match: PracticeMatch, hostToken: string | null | undefined): boolean {
+export function canScore(match: PracticeMatch, opts?: string | null | PracticeAuthOpts): boolean {
   if (match.status === "done") return false;
-  if (verifyHost(match, hostToken)) return true;
+  const auth: PracticeAuthOpts =
+    opts && typeof opts === "object" ? opts : { hostToken: opts as string | null | undefined };
+  if (verifyHost(match, auth.hostToken)) return true;
+  if (verifyScorer(match, auth)) return true;
   return match.allowPublicScore;
+}
+
+export async function invitePracticeScorer(
+  id: string,
+  hostToken: string | null | undefined,
+  input: { email?: string; label?: string },
+): Promise<{ match: PracticeMatch; scorerToken: string; inviteId: string }> {
+  if (!verifyHost(await mustGet(id), hostToken)) throw new PracticeError("Only the host can invite scorers");
+  const scorerToken = newHostToken();
+  const inviteId = `s_${randomBytes(6).toString("hex")}`;
+  const emailNorm = input.email?.trim() ? input.email.trim().toLowerCase() : undefined;
+  const label = input.label?.trim().slice(0, 40) || undefined;
+  const match = await updatePracticeEvents(id, (m) => {
+    if (!verifyHost(m, hostToken)) return "Only the host can invite scorers";
+    const entry: PracticeScorerInvite = {
+      id: inviteId,
+      tokenHash: hashHostToken(scorerToken),
+      emailNorm,
+      label,
+      createdAt: Date.now(),
+    };
+    m.scorers = [...(m.scorers || []), entry];
+    return m;
+  });
+  return { match, scorerToken, inviteId };
+}
+
+export async function revokePracticeScorer(
+  id: string,
+  hostToken: string | null | undefined,
+  inviteId: string,
+): Promise<PracticeMatch> {
+  return updatePracticeEvents(id, (m) => {
+    if (!verifyHost(m, hostToken)) return "Only the host can revoke scorers";
+    const list = m.scorers || [];
+    const idx = list.findIndex((s) => s.id === inviteId);
+    if (idx < 0) return "Scorer invite not found";
+    if (list[idx].revokedAt) return m;
+    list[idx] = { ...list[idx], revokedAt: Date.now() };
+    m.scorers = list;
+    return m;
+  });
+}
+
+export async function claimPracticeScorer(
+  id: string,
+  opts: { scorerToken?: string | null; userId: string; emailNorm?: string | null },
+): Promise<PracticeMatch> {
+  return updatePracticeEvents(id, (m) => {
+    const list = m.scorers || [];
+    let hit = -1;
+    if (opts.scorerToken) {
+      const h = hashHostToken(opts.scorerToken);
+      hit = list.findIndex((s) => !s.revokedAt && s.tokenHash === h);
+    }
+    if (hit < 0 && opts.emailNorm) {
+      hit = list.findIndex((s) => !s.revokedAt && s.emailNorm === opts.emailNorm);
+    }
+    if (hit < 0) return "No matching scorer invite";
+    list[hit] = { ...list[hit], claimedUserId: opts.userId };
+    m.scorers = list;
+    return m;
+  });
+}
+
+async function mustGet(id: string): Promise<PracticeMatch> {
+  const m = await getPractice(id);
+  if (!m) throw new PracticeError("Practice not found");
+  return m;
 }
 
 export async function updatePracticeEvents(
@@ -306,6 +408,7 @@ export async function completePractice(patch: PracticeMatch): Promise<PracticeMa
       ...patch,
       id: cur.id,
       hostTokenHash: cur.hostTokenHash,
+      scorers: cur.scorers,
       status: "done",
       completedAt: Date.now(),
       v: cur.v,

@@ -2,12 +2,20 @@
 
 import Link from "next/link";
 import { useLive } from "@/components/LiveProvider";
-import { Loading, MatchRow, StandingsTable } from "@/components/ui";
+import { LiveGate, MatchRow, StandingsTable } from "@/components/ui";
 import { resultKeys } from "@/lib/engine";
 
 export default function Standings() {
+  return (
+    <LiveGate>
+      <StandingsInner />
+    </LiveGate>
+  );
+}
+
+function StandingsInner() {
   const { state, calc, team, seasonHref } = useLive();
-  if (!state || !calc) return <Loading />;
+  if (!state || !calc) return null;
   const s = state.config.settings;
   const playoffs = state.config.fixtures.filter((f) => f.stage !== "League").sort((a, b) => a.no - b.no);
   const champ = team(calc.champion);

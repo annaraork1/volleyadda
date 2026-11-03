@@ -19,7 +19,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { absoluteUrl } from "../api/absoluteUrl";
-import { colors, radius, space } from "../theme";
+import { colors, fonts, radius, space } from "../theme";
 import { useLive } from "../context/LiveContext";
 import { scoreLine, type Fixture } from "../shared";
 
@@ -177,11 +177,11 @@ export function Btn({
     variant === "primary"
       ? colors.accent
       : variant === "danger"
-        ? colors.bad
+        ? colors.live
         : variant === "secondary"
           ? colors.cardAlt
           : "transparent";
-  const fg = variant === "primary" || variant === "danger" ? "#04101C" : colors.text;
+  const fg = variant === "primary" ? colors.onAccent : colors.text;
   return (
     <Pressable
       onPress={onPress}
@@ -243,7 +243,7 @@ export function Chips<T extends string | number>({
             onPress={() => onChange(o.value)}
             style={[styles.chip, on && { backgroundColor: colors.accent, borderColor: colors.accent }]}
           >
-            <Text style={{ color: on ? "#04101C" : colors.text, fontWeight: "600" }}>{o.label}</Text>
+            <Text style={{ color: on ? colors.onAccent : colors.text, fontFamily: fonts.bodySemi }}>{o.label}</Text>
           </Pressable>
         );
       })}
@@ -254,7 +254,7 @@ export function Chips<T extends string | number>({
 export function Pill({ text, color = colors.accent }: { text: string; color?: string }) {
   return (
     <View style={[styles.pill, { borderColor: color }]}>
-      <Text style={{ color, fontSize: 11, fontWeight: "700", letterSpacing: 0.5 }}>{text.toUpperCase()}</Text>
+      <Text style={{ color, fontSize: 11, fontFamily: fonts.displaySemi, letterSpacing: 1 }}>{text.toUpperCase()}</Text>
     </View>
   );
 }
@@ -276,9 +276,29 @@ export function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Shows load error from the live provider with a retry. */
+/** Empty state when the user has not selected a tournament (PRODUCT.md Phase 1). */
+export function NoTournamentSelected() {
+  const router = useRouter();
+  return (
+    <Card style={{ gap: 12 }}>
+      <H2>No tournament selected</H2>
+      <Muted>Pick a tournament from Home, open a public one, or create your own. Practice matches do not need a tournament.</Muted>
+      <Btn title="Go to Home" onPress={() => router.push("/")} />
+      <Btn title="Practice" variant="secondary" onPress={() => router.push("/practice")} />
+      <Btn title="Create tournament" variant="ghost" onPress={() => router.push("/tournament/create")} />
+    </Card>
+  );
+}
+
+/** Shows tournament state, or pick/create empty when none selected. */
 export function LiveGate({ children }: { children: (s: NonNullable<ReturnType<typeof useLive>["state"]>, c: NonNullable<ReturnType<typeof useLive>["calc"]>) => React.ReactNode }) {
-  const { state, calc, error, refresh } = useLive();
+  const { state, calc, error, refresh, season, seasonReady, loading } = useLive();
+  if (!seasonReady || (season && loading && !state && !error)) {
+    return <Loading />;
+  }
+  if (!season) {
+    return <NoTournamentSelected />;
+  }
   if (!state || !calc) {
     return (
       <View style={{ gap: 12 }}>
@@ -418,31 +438,43 @@ export const styles = StyleSheet.create({
   pad: { padding: space.lg },
   card: {
     backgroundColor: colors.card,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: space.lg,
     gap: space.sm,
   },
-  h1: { color: colors.text, fontSize: 26, fontWeight: "800" },
-  h2: { color: colors.text, fontSize: 18, fontWeight: "700" },
-  body: { color: colors.text, fontSize: 15, lineHeight: 21 },
-  muted: { color: colors.muted, fontSize: 13 },
-  error: { color: colors.bad, fontSize: 14 },
-  link: { color: colors.accent, fontWeight: "600" },
+  h1: {
+    color: colors.text,
+    fontSize: 34,
+    fontFamily: fonts.displayExtra,
+    letterSpacing: 0.2,
+    lineHeight: 38,
+  },
+  h2: {
+    color: colors.text,
+    fontSize: 18,
+    fontFamily: fonts.display,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  body: { color: colors.text, fontSize: 15, lineHeight: 21, fontFamily: fonts.body },
+  muted: { color: colors.muted, fontSize: 13, fontFamily: fonts.body },
+  error: { color: colors.bad, fontSize: 14, fontFamily: fonts.body },
+  link: { color: colors.accent, fontFamily: fonts.bodySemi },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: space.sm },
   btn: {
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     paddingVertical: 14,
     paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
   },
-  btnText: { fontSize: 16, fontWeight: "700" },
-  label: { color: colors.muted, fontSize: 13, fontWeight: "600" },
-  hint: { color: colors.muted, fontSize: 12 },
+  btnText: { fontSize: 16, fontFamily: fonts.bodyBold },
+  label: { color: colors.muted, fontSize: 13, fontFamily: fonts.bodySemi },
+  hint: { color: colors.muted, fontSize: 12, fontFamily: fonts.body },
   input: {
-    backgroundColor: colors.bg2,
+    backgroundColor: colors.bg,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radius.sm,
@@ -450,19 +482,20 @@ export const styles = StyleSheet.create({
     paddingVertical: 12,
     color: colors.text,
     fontSize: 16,
+    fontFamily: fonts.body,
   },
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.bg2,
   },
   pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  teamName: { color: colors.text, fontSize: 16, fontWeight: "600", flexShrink: 1 },
-  sets: { color: colors.muted, fontSize: 20, fontWeight: "700", minWidth: 20, textAlign: "right" },
-  pts: { color: colors.text, fontSize: 24, fontWeight: "800", minWidth: 32, textAlign: "right" },
+  teamName: { color: colors.text, fontSize: 16, fontFamily: fonts.bodySemi, flexShrink: 1 },
+  sets: { color: colors.muted, fontSize: 20, fontFamily: fonts.display, minWidth: 20, textAlign: "right" },
+  pts: { color: colors.text, fontSize: 24, fontFamily: fonts.displayExtra, minWidth: 32, textAlign: "right" },
   trow: {
     flexDirection: "row",
     alignItems: "center",
@@ -470,7 +503,7 @@ export const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  th: { color: colors.muted, fontSize: 12, fontWeight: "700" },
-  td: { color: colors.text, fontSize: 14 },
+  th: { color: colors.muted, fontSize: 12, fontFamily: fonts.bodyBold },
+  td: { color: colors.text, fontSize: 14, fontFamily: fonts.body },
   tcell: { width: 44, textAlign: "center" },
 });

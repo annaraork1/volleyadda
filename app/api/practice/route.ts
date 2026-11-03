@@ -3,41 +3,74 @@ import { checkAction, derive } from "@/lib/engine";
 import {
   abandonPractice,
   canScore,
+  claimPracticeScorer,
   completePractice,
   createPractice,
   deleteCompletedPractice,
   getPractice,
+  invitePracticeScorer,
   listCompletedPractices,
   listLivePractices,
   PracticeError,
   resultFromEvents,
+  revokePracticeScorer,
   toPublic,
   updatePracticeEvents,
   verifyHost,
+  type PracticeAuthOpts,
 } from "@/lib/practiceStore";
 import { adjustEvent } from "@/lib/scoreAdjust";
 import type { MatchEvent, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const dev = process.env.NODE_ENV !== "production";
-const ADMIN_PIN = process.env.ADMIN_PIN || (dev ? "1234" : "");
-
 function err(msg: string, status = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
-async function isAdmin(req: Request) {
-  const pin = req.headers.get("x-pin");
-  if (ADMIN_PIN && pin && pin === ADMIN_PIN) return true;
+async function sessionUser(req: Request) {
   try {
-    const { requireUser, isSuperadminEmail } = await import("@/lib/session");
+    const { requireUser } = await import("@/lib/session");
     const auth = await requireUser(req);
-    if (!("error" in auth) && isSuperadminEmail(auth.user.email)) return true;
+    if (!("error" in auth)) return auth.user;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** Support override only — no global Admin PIN. */
+async function isSuperadmin(req: Request) {
+  try {
+    const { isSuperadminEmail } = await import("@/lib/session");
+    const user = await sessionUser(req);
+    if (user && isSuperadminEmail(user.email)) return true;
   } catch {
     /* ignore */
   }
   return false;
+}
+
+function isHostOrCreator(
+  match: { hostTokenHash: string; hostUserId?: string },
+  hostToken: string | null,
+  user: { id: string } | null,
+): boolean {
+  if (verifyHost(match as Parameters<typeof verifyHost>[0], hostToken)) return true;
+  if (user && match.hostUserId && match.hostUserId === user.id) return true;
+  return false;
+}
+
+function practiceAuth(
+  body: Record<string, unknown>,
+  user: { id: string; emailNorm: string } | null,
+): PracticeAuthOpts {
+  return {
+    hostToken: typeof body.hostToken === "string" ? body.hostToken : null,
+    scorerToken: typeof body.scorerToken === "string" ? body.scorerToken : null,
+    userId: user?.id ?? null,
+    emailNorm: user?.emailNorm ?? null,
+  };
 }
 
 const isSide = (s: unknown): s is Side => s === "A" || s === "B";
@@ -58,7 +91,9 @@ export async function POST(req: Request) {
   }
   const type = String(body.type ?? "");
   const hostToken = typeof body.hostToken === "string" ? body.hostToken : null;
-  const admin = await isAdmin(req);
+  const superadmin = await isSuperadmin(req);
+  const user = await sessionUser(req);
+  const auth = practiceAuth(body, user);
 
   try {
     if (type === "create") {
@@ -71,6 +106,7 @@ export async function POST(req: Request) {
         format: body.format,
         timeoutSeconds: body.timeoutSeconds as number | undefined,
         allowPublicScore: Boolean(body.allowPublicScore),
+        hostUserId: user?.id,
       });
       return NextResponse.json({
         ok: true,
@@ -83,10 +119,47 @@ export async function POST(req: Request) {
     const match = await getPractice(id);
     if (!match) return err("Practice not found", 404);
 
+    if (type === "inviteScorer") {
+      if (!verifyHost(match, hostToken)) return err("Only the host can invite scorers", 403);
+      const { match: updated, scorerToken, inviteId } = await invitePracticeScorer(id, hostToken, {
+        email: typeof body.email === "string" ? body.email : undefined,
+        label: typeof body.label === "string" ? body.label : undefined,
+      });
+      return NextResponse.json({
+        ok: true,
+        inviteId,
+        scorerToken,
+        match: toPublic(updated, auth),
+      });
+    }
+
+    if (type === "revokeScorer") {
+      if (!verifyHost(match, hostToken)) return err("Only the host can revoke scorers", 403);
+      const inviteId = String(body.inviteId ?? "");
+      if (!inviteId) return err("inviteId required");
+      const updated = await revokePracticeScorer(id, hostToken, inviteId);
+      return NextResponse.json({ ok: true, match: toPublic(updated, auth) });
+    }
+
+    if (type === "claimScorer") {
+      if (!user) return err("Sign in to claim a scorer invite", 401);
+      const updated = await claimPracticeScorer(id, {
+        scorerToken: auth.scorerToken,
+        userId: user.id,
+        emailNorm: user.emailNorm,
+      });
+      return NextResponse.json({
+        ok: true,
+        match: toPublic(updated, { ...auth, userId: user.id, emailNorm: user.emailNorm }),
+      });
+    }
+
     if (type === "score") {
       if (match.mode !== "live") return err("This practice is quick-result only", 409);
       if (match.status === "done") return err("Match is finished", 409);
-      if (!canScore(match, hostToken)) return err("Only the host can score (or enable public scoring)", 403);
+      if (!canScore(match, auth)) {
+        return err("Only the host or an invited scorer can score this match", 403);
+      }
 
       const action = String(body.action ?? "");
       const fmt = match.format;
@@ -126,6 +199,23 @@ export async function POST(req: Request) {
         return m;
       });
 
+      if (match.status !== "live" && updated.status === "live") {
+        try {
+          const { pushNoticeMany } = await import("@/lib/notifyStore");
+          const claimed = (updated.scorers || [])
+            .filter((s) => !s.revokedAt && s.claimedUserId)
+            .map((s) => s.claimedUserId!) ;
+          await pushNoticeMany(claimed, {
+            type: "practice_live",
+            title: "Practice match live",
+            body: `${updated.labelA} vs ${updated.labelB} is live.`,
+            practiceId: updated.id,
+          });
+        } catch {
+          /* non-fatal */
+        }
+      }
+
       const st = derive(updated.ev, updated.format, updated.timeoutSeconds);
       let final = updated;
       if (st.status === "done") {
@@ -139,13 +229,13 @@ export async function POST(req: Request) {
       }
       return NextResponse.json({
         ok: true,
-        match: toPublic(final, { hostToken }),
+        match: toPublic(final, auth),
         state: derive(final.ev, final.format, final.timeoutSeconds),
       });
     }
 
     if (type === "quickResult") {
-      if (!verifyHost(match, hostToken) && !admin) return err("Host token required", 403);
+      if (!isHostOrCreator(match, hostToken, user) && !superadmin) return err("Host required", 403);
       if (match.status === "done") return err("Already completed", 409);
       const setsWon = body.setsWon as { a?: number; b?: number } | undefined;
       const a = Number(setsWon?.a);
@@ -172,11 +262,13 @@ export async function POST(req: Request) {
         winner,
         ev: match.ev,
       });
-      return NextResponse.json({ ok: true, match: toPublic(final, { hostToken }) });
+      return NextResponse.json({ ok: true, match: toPublic(final, auth) });
     }
 
     if (type === "complete") {
-      if (!verifyHost(match, hostToken) && !admin) return err("Host token required", 403);
+      if (!isHostOrCreator(match, hostToken, user) && !canScore(match, auth) && !superadmin) {
+        return err("Host or invited scorer required", 403);
+      }
       if (match.status === "done") return err("Already completed", 409);
       const st = derive(match.ev, match.format, match.timeoutSeconds);
       if (st.status !== "done") return err("Match is not finished yet", 409);
@@ -187,17 +279,21 @@ export async function POST(req: Request) {
         setScores: result.setScores,
         winner: result.winner,
       });
-      return NextResponse.json({ ok: true, match: toPublic(final, { hostToken }) });
+      return NextResponse.json({ ok: true, match: toPublic(final, auth) });
     }
 
     if (type === "abandon") {
-      if (!verifyHost(match, hostToken) && !admin) return err("Only the host or admin can abandon", 403);
+      if (!isHostOrCreator(match, hostToken, user) && !superadmin) {
+        return err("Only the host can abandon", 403);
+      }
       await abandonPractice(id);
       return NextResponse.json({ ok: true });
     }
 
     if (type === "delete") {
-      if (!admin) return err("Admin PIN needed", 403);
+      if (!isHostOrCreator(match, hostToken, user) && !superadmin) {
+        return err("Only the host can delete a completed practice", 403);
+      }
       await deleteCompletedPractice(id);
       return NextResponse.json({ ok: true });
     }

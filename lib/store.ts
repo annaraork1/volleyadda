@@ -8,6 +8,8 @@ import {
   needsWorkflowBackfill,
   withWorkflowDefaults,
 } from "./season";
+import { nsKey, nsKeys, redisCredentials } from "./redisNs.ts";
+import { newPublicCode, newTournamentKey } from "./tournamentKeys";
 import {
   DEFAULT_LOGO,
   DEFAULT_TOURNAMENT_KEY,
@@ -15,6 +17,7 @@ import {
   emptyRegistry,
   isValidTournamentKey,
   metaFor,
+  normalizePublicCode,
   normalizeRegistry,
 } from "./tournaments";
 import type { AppState, Config, MatchDoc, Registry, TournamentMeta } from "./types";
@@ -23,21 +26,17 @@ import type { AppState, Config, MatchDoc, Registry, TournamentMeta } from "./typ
  * Storage: Upstash Redis when its env vars are present (Vercel → Storage → Upstash for Redis),
  * otherwise an in-memory store that is fine for local testing but is NOT shared between
  * serverless instances, so it must not be used for the real event.
+ *
+ * All keys are namespaced with REDIS_KEY_PREFIX (default `vada:`) so VolleyAdda can share
+ * an Upstash instance with TNH without colliding on `tnhvpl:*` keys.
  */
-const url =
-  process.env.KV_REST_API_URL ||
-  process.env.UPSTASH_REDIS_REST_URL ||
-  process.env.tnhvpl_KV_REST_API_URL;
-const token =
-  process.env.KV_REST_API_TOKEN ||
-  process.env.UPSTASH_REDIS_REST_TOKEN ||
-  process.env.tnhvpl_KV_REST_API_TOKEN;
-
-const redis = url && token ? new Redis({ url, token }) : null;
+const creds = redisCredentials();
+const redis = creds ? new Redis({ url: creds.url, token: creds.token }) : null;
 const g = globalThis as unknown as { __mem?: Map<string, string> };
 const mem = (g.__mem ??= new Map<string, string>());
 
 export const storageKind: AppState["storage"] = redis ? "redis" : "memory";
+export { nsKey, REDIS_KEY_PREFIX } from "./redisNs";
 
 export const cfgKey = (prefix: string) => `${prefix}:config`;
 export const matchKey = (prefix: string, id: string) => `${prefix}:m:${id}`;
@@ -63,34 +62,38 @@ redis.call('SET', KEYS[1], ARGV[1])
 return 1`;
 
 export async function readRaw<T>(keys: string[]): Promise<(T | null)[]> {
+  const physical = nsKeys(keys);
   if (redis) {
-    if (!keys.length) return [];
-    return (await redis.mget<(T | null)[]>(...keys)) as (T | null)[];
+    if (!physical.length) return [];
+    return (await redis.mget<(T | null)[]>(...physical)) as (T | null)[];
   }
-  return keys.map((k) => (mem.has(k) ? (JSON.parse(mem.get(k)!) as T) : null));
+  return physical.map((k) => (mem.has(k) ? (JSON.parse(mem.get(k)!) as T) : null));
 }
 
 export async function writeRaw(key: string, value: unknown): Promise<void> {
+  const physical = nsKey(key);
   const json = JSON.stringify(value);
-  if (redis) await redis.set(key, json);
-  else mem.set(key, json);
+  if (redis) await redis.set(physical, json);
+  else mem.set(physical, json);
 }
 
 export async function delRaw(key: string): Promise<void> {
-  if (redis) await redis.del(key);
-  else mem.delete(key);
+  const physical = nsKey(key);
+  if (redis) await redis.del(physical);
+  else mem.delete(physical);
 }
 
 async function cas(key: string, value: { v: number }, expected: number): Promise<boolean> {
+  const physical = nsKey(key);
   const json = JSON.stringify(value);
   if (redis) {
-    const r = await redis.eval(CAS, [key], [json, String(expected)]);
+    const r = await redis.eval(CAS, [physical], [json, String(expected)]);
     return Number(r) === 1;
   }
-  const cur = mem.get(key);
+  const cur = mem.get(physical);
   const v = cur ? Number(JSON.parse(cur).v ?? 0) : 0;
   if (v !== expected) return false;
-  mem.set(key, json);
+  mem.set(physical, json);
   return true;
 }
 
@@ -253,7 +256,7 @@ export async function resetAll(prefix: string) {
   const [cfg] = await readRaw<Config>([cfgKey(prefix)]);
   const config = normalizeConfig(cfg, defaultConfig());
   const ids = config.fixtures.map((f) => f.id);
-  const matchKeys = ids.map((id) => matchKey(prefix, id));
+  const matchKeys = nsKeys(ids.map((id) => matchKey(prefix, id)));
   if (redis) {
     if (matchKeys.length) await redis.del(...matchKeys);
   } else {
@@ -267,7 +270,8 @@ export async function resetAll(prefix: string) {
 
 /** Create season: blank or clone (match scores start empty). */
 export async function createTournamentSeason(opts: {
-  key: string;
+  /** Omit or empty to auto-generate an opaque key (PRODUCT option D). */
+  key?: string;
   name: string;
   short: string;
   subtitle: string;
@@ -277,13 +281,25 @@ export async function createTournamentSeason(opts: {
   cloneFrom?: string;
   /** "workflow" (default): team shells only, stage=registration. "archive": full copy of players/fixtures. */
   cloneStyle?: "workflow" | "archive";
-}): Promise<{ registry: Registry; key: string }> {
-  if (!isValidTournamentKey(opts.key)) {
-    throw new ActionError("Key must be lowercase letters, numbers and hyphens (e.g. tnhvpl-s6)");
+}): Promise<{ registry: Registry; key: string; publicCode: string }> {
+  let key = (opts.key || "").trim().toLowerCase();
+  if (!key) key = newTournamentKey();
+  if (!isValidTournamentKey(key)) {
+    throw new ActionError("Key must be lowercase letters, numbers and hyphens (e.g. t-ab12cd)");
   }
-  const logo = (opts.logo || DEFAULT_LOGO).slice(0, 400_000);
+  const logo = (opts.logo || "").trim();
+  if (!logo || logo === DEFAULT_LOGO) {
+    throw new ActionError("Tournament logo is required");
+  }
+  const logoSafe = logo.slice(0, 400_000);
   const registry = await loadRegistry();
-  if (registry.tournaments.some((t) => t.key === opts.key)) throw new ActionError("That tournament key already exists");
+  if (registry.tournaments.some((t) => t.key === key)) throw new ActionError("That tournament key already exists");
+
+  let publicCode = newPublicCode();
+  for (let i = 0; i < 8; i++) {
+    if (!registry.tournaments.some((t) => t.publicCode && normalizePublicCode(t.publicCode) === publicCode)) break;
+    publicCode = newPublicCode();
+  }
 
   const workflowDefaults = {
     stage: "registration" as const,
@@ -371,21 +387,22 @@ export async function createTournamentSeason(opts: {
     };
   }
 
-  await update<Config>(cfgKey(opts.key), () => config, () => ({ ...config, v: 0 }));
+  await update<Config>(cfgKey(key), () => config, () => ({ ...config, v: 0 }));
 
   const meta: TournamentMeta = {
-    key: opts.key,
+    key,
     name: config.tournament.name,
     short: config.tournament.short,
     subtitle: config.tournament.subtitle,
     dates: config.tournament.dates,
-    logo,
+    logo: logoSafe,
     createdAt: Date.now(),
+    publicCode,
   };
 
   const next = await updateRegistry((reg) => {
-    if (reg.tournaments.some((t) => t.key === opts.key)) return "That tournament key already exists";
+    if (reg.tournaments.some((t) => t.key === key)) return "That tournament key already exists";
     return { ...reg, tournaments: [...reg.tournaments, meta] };
   });
-  return { registry: next, key: opts.key };
+  return { registry: next, key, publicCode };
 }

@@ -1,13 +1,30 @@
 # VolleyAdda
 
-Public volleyball scoring and tournament platform. Create an account, score a single match, or run a full season (registration → auction → fixtures → matches), with live scores, gallery, and share links.
+VolleyAdda is a public volleyball scoring and tournament app. Anyone can create an account, score a single match, or run a full season — registration, auction, fixtures, live scoring, points table, gallery, and share links.
 
-This repository is separate from [TNHVPL](https://tnhvpl.vercel.app). That site keeps its own code, database, and PIN scoring.
+**Live site:** https://volleyadda.vercel.app  
+**Repo:** https://github.com/annaraork1/volleyadda  
+**Mobile app:** Expo project in `mobile/` (VolleyAdda on the home screen and store listing)
+
+This codebase is separate from the original TNH club site at https://tnhvpl.vercel.app. That deployment keeps its own repo, database, and PIN scoring. VolleyAdda does not share that data.
+
+## What VolleyAdda includes
+
+| Area | What |
+|---|---|
+| Accounts | Email signup/login, verify, password reset; Google and Apple when configured |
+| One match | Practice-style live scoring or quick result, owned by the signed-in user |
+| Tournament | Registration → auction → fixtures → matches → awards |
+| Live | Fixtures, points table, race, teams, match pages, venue display |
+| Score | Organiser / invited scorer keypad |
+| Auction | Board, owner bidding, console, projector |
+| Gallery | Upload, HEIC→JPEG on phone, organiser moderation |
+| Support | Report a problem; superadmin console at `/superadmin` |
 
 ## Stack
 
-- Next.js website + API (Vercel)
-- Upstash Redis for data
+- Next.js website + API on Vercel
+- Upstash Redis for VolleyAdda data
 - Vercel Blob for gallery photos
 - Expo app in `mobile/` (iOS / Android)
 
@@ -15,29 +32,41 @@ This repository is separate from [TNHVPL](https://tnhvpl.vercel.app). That site 
 
 ```bash
 npm install
-cp .env.example .env.local   # add SESSION_SECRET, optional Redis/Blob
+cp .env.example .env.local   # SESSION_SECRET, SUPERADMIN_EMAILS; optional Redis/Blob/Resend
 npm run dev                  # http://localhost:3000
 npm test
 ```
 
-Sign up at `/auth/signup`. Set `SUPERADMIN_EMAILS` to your email for `/superadmin`.
+Create a VolleyAdda account at `/auth/signup`. Put your email in `SUPERADMIN_EMAILS` to use `/superadmin`.
 
-## Mobile
+See [SETUP.md](SETUP.md) for production Redis, Blob, and email setup.
+
+## Mobile (VolleyAdda)
 
 ```bash
 cd mobile
-cp .env.example .env         # EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000
+cp .env.example .env         # EXPO_PUBLIC_API_URL=http://YOUR_LAN_IP:3000  (or https://volleyadda.vercel.app)
 npm install
 npx expo start
 ```
 
-## Deploy
+Preview builds: `eas build -p android --profile preview` (see `mobile/eas.json`).
 
-1. Connect this GitHub repo to a Vercel project (`volleyadda`).
-2. Add Upstash Redis (Storage) and Blob store; set `SESSION_SECRET`, `SUPERADMIN_EMAILS`, `APP_URL`.
-3. Optional: `RESEND_API_KEY`, `GOOGLE_CLIENT_ID`, `APPLE_CLIENT_ID`.
-4. Deploy. Point the Expo app at the production URL.
+## Deploy VolleyAdda
 
-## Accounts
+1. Vercel project `volleyadda` from this GitHub repo.
+2. Upstash Redis + Blob; set `SESSION_SECRET`, `SUPERADMIN_EMAILS`, `APP_URL=https://volleyadda.vercel.app`.
+3. Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `GOOGLE_CLIENT_ID`, `APPLE_CLIENT_ID`.
+4. Point the Expo app at https://volleyadda.vercel.app.
 
-Email/password, Google, and Apple sign-in. Sessions are bearer tokens (app) or httpOnly cookies (web). Organisers own tournaments; scorers, auctioneers, and team owners are invited by email.
+## Accounts and roles
+
+VolleyAdda uses accounts, not a shared site PIN.
+
+- **Organiser** — owns the tournament
+- **Scorer** — match actions only
+- **Auctioneer** — console / projector
+- **Team owner** — bid (invite by email; optional per-team bidder code)
+- **Spectator** — share link, no login
+
+Sessions: bearer token in the app (`expo-secure-store`), httpOnly cookie on the website.

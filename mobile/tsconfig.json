@@ -6,6 +6,12 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["app", "src", "*.d.ts", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "app",
+    "src",
+    "*.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

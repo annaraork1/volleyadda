@@ -6,7 +6,7 @@ export async function hitRateLimit(
   limit: number,
   windowMs: number,
 ): Promise<{ ok: boolean; remaining: number }> {
-  const full = `tnhvpl:rl:${key}`;
+  const full = `rl:${key}`;
   const now = Date.now();
   const [cur] = await readRaw<{ count: number; resetAt: number }>([full]);
   if (!cur || cur.resetAt < now) {

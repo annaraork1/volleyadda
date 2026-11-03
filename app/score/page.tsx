@@ -2,20 +2,33 @@
 
 import Link from "next/link";
 import { useLive } from "@/components/LiveProvider";
-import { Loading, PinGate, StatusPill, TeamName } from "@/components/ui";
+import { LiveGate, Loading, PinGate, StatusPill, TeamName } from "@/components/ui";
 
 export default function ScoreList() {
   return (
-    <PinGate need="scorer">
-      <List />
-    </PinGate>
+    <LiveGate>
+      <PinGate need="scorer">
+        <List />
+      </PinGate>
+    </LiveGate>
   );
 }
 
 function List() {
-  const { state, calc, logout } = useLive();
+  const { state, calc, logout, seasonHref } = useLive();
   if (!state || !calc) return <Loading />;
   const fx = [...state.config.fixtures].sort((a, b) => a.no - b.no);
+  if (fx.length === 0) {
+    return (
+      <div className="card stack">
+        <h1>Score a match</h1>
+        <p className="muted">Generate fixtures first from Organiser before scoring.</p>
+        <Link className="btn gold" href={seasonHref("/admin")}>
+          Open organiser
+        </Link>
+      </div>
+    );
+  }
   const open = fx.filter((f) => calc.ms[f.id].status !== "done");
   const done = fx.filter((f) => calc.ms[f.id].status === "done");
   const item = (f: (typeof fx)[number]) => {

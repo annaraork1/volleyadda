@@ -19,7 +19,8 @@ A fresh clone runs, but it does not contain match-day scores or uploaded photos.
 
 - Next.js 15 App Router, React 19, TypeScript. No separate backend.
 - Deployed on Vercel (free plan). `npm run build` is the production build.
-- Upstash Redis via `@upstash/redis` when `KV_REST_API_URL` + `KV_REST_API_TOKEN` (or the `UPSTASH_REDIS_*` / `tnhvpl_KV_*` aliases) are set.
+- Upstash Redis via `@upstash/redis` when `KV_REST_API_URL` + `KV_REST_API_TOKEN` (or the `UPSTASH_REDIS_*` / legacy `tnhvpl_KV_*` aliases) are set.
+- All VolleyAdda Redis keys are prefixed with `REDIS_KEY_PREFIX` (default `vada:`) via `lib/redisNs.ts`, so this app can share one Upstash instance with TNH without reading or writing `tnhvpl:*` keys.
 - Without those variables the same store API uses an in-memory `Map` on `globalThis`. Fine for `npm run dev`. Data dies on restart and is not shared across serverless instances.
 - Photos: `@vercel/blob`. `BLOB_ACCESS=private` (default) or `public`.
 - Tests: `npm test` runs `tests/*.test.ts` with Node's built-in test runner. The scoring engine is covered in `tests/engine.test.ts`.
@@ -97,15 +98,15 @@ Stages on `Config.stage`: `registration → auction → fixtures → matches →
 4. **Matches.** Scoring as above. When every league match is done, qualifier / eliminator / final teams resolve themselves. Admin can still override a fixture's teams (`over` on the match doc).
 5. **Awards** after the final: setter, attacker, server, mvp, emerging. Optional per-match best player feeds MVP suggestions.
 
-`createTournament` clones a season shell (teams kept, players and fixtures cleared, stage reset to registration) or starts blank. The registry key `tnhvpl:registry` lists seasons and which one is active. Archive links are `/s/<key>` and `?season=<key>`.
+`createTournament` clones a season shell (teams kept, players and fixtures cleared, stage reset to registration) or starts blank. The registry key `registry` (physical `vada:registry`) lists seasons and which one is active. Archive links are `/s/<key>` and `?season=<key>`.
 
 ## Redis keys
 
-Prefix is the tournament key, default `tnhvpl-s5` (`TOURNAMENT_KEY`).
+Every logical key below is stored as `{REDIS_KEY_PREFIX}{logical}` (default prefix `vada:`). Tournament docs use the tournament key as `{prefix}` (default season `demo` via `TOURNAMENT_KEY`).
 
-| Key | Document |
+| Logical key | Document |
 |---|---|
-| `tnhvpl:registry` | Season list and active key |
+| `registry` | Season list and active key |
 | `{prefix}:config` | Tournament, settings, teams, fixtures, players, awards, stage, auction and registration settings |
 | `{prefix}:m:{matchId}` | One match's events |
 | `{prefix}:private` | Phone, tower, age, email by player id |
@@ -114,8 +115,10 @@ Prefix is the tournament key, default `tnhvpl-s5` (`TOURNAMENT_KEY`).
 | `{prefix}:reg:index` and `{prefix}:reg:{id}` | Registration rows |
 | `{prefix}:ph:{playerId}` | Player photo reference |
 | `{prefix}:gallery:index` and `{prefix}:gallery:{id}` | Gallery metadata (bytes are in Blob) |
-| `tnhvpl:practice:index` and practice match keys | Casual matches, not part of a season |
-| presence keys | Short-lived viewer heartbeats (`lib/presence.ts`, about 35s TTL) |
+| `practice:index` and `practice:m:*` | Casual matches, not part of a season |
+| `presence:*` | Short-lived viewer heartbeats (`lib/presence.ts`, about 35s TTL) |
+| `va:user:*`, `va:sess:*`, … | Account / session documents (`lib/authStore.ts`) |
+| `rl:*` | Rate-limit counters |
 
 ## HTTP surface
 

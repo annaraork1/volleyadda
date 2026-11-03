@@ -1,6 +1,7 @@
-/** Client-side host token storage for practice matches (creating browser only). */
+/** Client-side host / scorer token storage for practice matches. */
 
-const PREFIX = "tnhvpl:practice:host:";
+const PREFIX = "vada:practice:host:";
+const SCORER_PREFIX = "vada:practice:scorer:";
 
 export function saveHostToken(id: string, token: string) {
   try {
@@ -40,5 +41,21 @@ export function listOpenHostIds(): string[] {
     return Array.isArray(arr) ? arr.map(String) : [];
   } catch {
     return [];
+  }
+}
+
+export function saveScorerToken(id: string, token: string) {
+  try {
+    localStorage.setItem(SCORER_PREFIX + id, token);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getScorerToken(id: string): string | null {
+  try {
+    return localStorage.getItem(SCORER_PREFIX + id);
+  } catch {
+    return null;
   }
 }

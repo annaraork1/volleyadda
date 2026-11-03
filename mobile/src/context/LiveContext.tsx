@@ -22,13 +22,18 @@ const SEASON_KEY = "va_season";
 export type Calc = ReturnType<typeof computeAll>;
 
 interface LiveCtx {
-  /** Latest tournament snapshot from /api/state. */
+  /** Latest tournament snapshot from /api/state (only when a tournament is selected). */
   state: AppState | null;
   /** computeAll(state): resolved teams, derived match states, standings. */
   calc: Calc | null;
   error: string | null;
   loading: boolean;
-  /** Selected tournament key; null = the site's active tournament. */
+  /** True after SecureStore season key has been read. */
+  seasonReady: boolean;
+  /**
+   * Selected tournament key.
+   * null = no tournament selected (do not fall back to registry activeKey).
+   */
   season: string | null;
   setSeason: (key: string | null) => void;
   /** Server clock minus device clock (ms) – use for timeout countdowns. */
@@ -57,13 +62,15 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
   const appliedSeq = useRef(0);
   const [seasonReady, setSeasonReady] = useState(false);
 
-  // restore the last selected tournament
+  // restore the last selected tournament (if any)
   useEffect(() => {
     (async () => {
       const k = await storage.get(SEASON_KEY);
       if (k) {
         seasonRef.current = k;
         setSeasonState(k);
+      } else {
+        setLoading(false);
       }
       setSeasonReady(true);
     })();
@@ -81,6 +88,13 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(
     async (fresh = false): Promise<AppState | null> => {
+      if (!seasonRef.current) {
+        setState(null);
+        setError(null);
+        setLoading(false);
+        liveRef.current = false;
+        return null;
+      }
       const seq = ++seqRef.current;
       try {
         const s = await fetchState({ season: seasonRef.current, fresh: fresh || freshRef.current > 0 });
@@ -99,15 +113,28 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
     seasonRef.current = key;
     setSeasonState(key);
     setState(null);
-    setLoading(true);
+    setError(null);
+    liveRef.current = false;
     appliedSeq.current = seqRef.current + 1; // drop in-flight responses for the old season
-    if (key) void storage.set(SEASON_KEY, key);
-    else void storage.del(SEASON_KEY);
+    if (key) {
+      setLoading(true);
+      void storage.set(SEASON_KEY, key);
+    } else {
+      setLoading(false);
+      void storage.del(SEASON_KEY);
+    }
   }, []);
 
-  // polling loop (cadence from lib/livePoll.ts)
+  // polling loop only while a tournament is selected (cadence from lib/livePoll.ts)
   useEffect(() => {
-    if (!seasonReady) return;
+    if (!seasonReady || !season) {
+      if (seasonReady && !season) {
+        setState(null);
+        setLoading(false);
+        liveRef.current = false;
+      }
+      return;
+    }
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let active = RNAppState.currentState !== "background" && RNAppState.currentState !== "inactive";
@@ -142,6 +169,9 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
 
   const act = useCallback(
     async (body: { type: string } & Record<string, unknown>): Promise<AppState | null> => {
+      if (!seasonRef.current && body.type !== "createTournament") {
+        throw new Error("Select a tournament first");
+      }
       const seq = ++seqRef.current;
       const r = await postAction({ ...body, season: seasonRef.current ?? undefined });
       if (r.state) {
@@ -165,8 +195,21 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<LiveCtx>(
-    () => ({ state, calc, error, loading, season, setSeason, serverOffset, refresh, act, requestFresh, team }),
-    [state, calc, error, loading, season, setSeason, serverOffset, refresh, act, requestFresh, team],
+    () => ({
+      state,
+      calc,
+      error,
+      loading,
+      seasonReady,
+      season,
+      setSeason,
+      serverOffset,
+      refresh,
+      act,
+      requestFresh,
+      team,
+    }),
+    [state, calc, error, loading, seasonReady, season, setSeason, serverOffset, refresh, act, requestFresh, team],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

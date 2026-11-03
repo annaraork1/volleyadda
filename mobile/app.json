@@ -22,7 +22,10 @@
       "adaptiveIcon": {
         "backgroundColor": "#070B16",
         "foregroundImage": "./assets/adaptive-icon.png"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -47,10 +50,21 @@
           "photosPermission": "VolleyAdda uses your photos so you can upload match pictures to the gallery.",
           "cameraPermission": "VolleyAdda uses the camera so you can take match pictures for the gallery."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "21a66e9a-c98d-4948-8aa7-5b3b7cf5e1e8"
+      }
     }
   }
 }

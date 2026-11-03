@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { GoogleSignIn } from "@/components/GoogleSignIn";
 
 function LoginForm() {
   const router = useRouter();
@@ -12,6 +13,15 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((m) => {
+        if (m?.ok) router.replace(next === "/auth/login" ? "/account" : next);
+      })
+      .catch(() => {});
+  }, [next, router]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,10 +63,11 @@ function LoginForm() {
           autoComplete="current-password"
         />
       </label>
-      {error && <p className="err">{error}</p>}
+      {error && <p className="error">{error}</p>}
       <button className="btn primary" type="submit" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
       </button>
+      <GoogleSignIn next={next} text="signin_with" onError={setError} />
       <p>
         <Link href="/auth/signup">Create an account</Link>
         {" · "}

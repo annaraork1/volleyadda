@@ -21,6 +21,20 @@ export interface PracticePlayer {
   source: PracticePlayerSource;
 }
 
+/** Extra scorer invited by the practice host (email and/or shareable token). */
+export interface PracticeScorerInvite {
+  id: string;
+  tokenHash: string;
+  emailNorm?: string;
+  label?: string;
+  createdAt: number;
+  revokedAt?: number;
+  claimedUserId?: string;
+}
+
+/** Host-visible / public list item (no token hash). */
+export type PracticeScorerPublic = Omit<PracticeScorerInvite, "tokenHash">;
+
 export interface PracticeMatch {
   v: number;
   id: string;
@@ -30,7 +44,15 @@ export interface PracticeMatch {
   completedAt?: number;
   /** SHA-256 hex of host token (plain token returned once on create). */
   hostTokenHash: string;
+  /** Signed-in user who created the match (optional; enables host delete without PIN). */
+  hostUserId?: string;
+  /**
+   * Legacy: anyone with the link may score.
+   * Product default is host-only; prefer `scorers` invites.
+   */
   allowPublicScore: boolean;
+  /** Invited scorers (active + revoked kept for audit). */
+  scorers?: PracticeScorerInvite[];
   labelA: string;
   labelB: string;
   sideA: PracticePlayer[];
@@ -43,9 +65,11 @@ export interface PracticeMatch {
   winner?: Side | null;
 }
 
-/** Public-safe view (no hostTokenHash). */
-export type PracticeMatchPublic = Omit<PracticeMatch, "hostTokenHash"> & {
+/** Public-safe view (no hostTokenHash / scorer token hashes). */
+export type PracticeMatchPublic = Omit<PracticeMatch, "hostTokenHash" | "scorers"> & {
   isHost?: boolean;
+  isScorer?: boolean;
+  scorers?: PracticeScorerPublic[];
 };
 
 export interface PracticeSummary {

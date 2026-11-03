@@ -26,6 +26,7 @@ export async function GET(req: Request) {
         subtitle: state.meta.subtitle,
         dates: state.meta.dates,
         logo: state.meta.logo,
+        publicCode: state.meta.publicCode,
         stage: state.config.stage || "matches",
         visibility: meta?.visibility || "link",
         role: roleOnTournament(meta, auth.user.id),

@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { Btn, ErrorText, Muted, Row, TeamLogo } from "./ui";
+import { PressureBallBadge } from "./PressureBallBadge";
+import { WatchingLine } from "./Watching";
+import { joinApiUrl } from "../api/absoluteUrl";
 import { colors, radius } from "../theme";
-import type { MatchState, Side } from "../shared";
+import { pressureBalls, type MatchState, type Side } from "../shared";
 
 export type ScoreAction = "start" | "point" | "timeout" | "adjust" | "resume" | "nextSet" | "undo";
 export interface ScoreExtra {
@@ -25,6 +28,11 @@ interface Props {
   error?: string | null;
   onAction: (action: ScoreAction, extra?: ScoreExtra) => void;
   footer?: React.ReactNode;
+  /** Public spectator path prefix, e.g. `/match` or `/practice`. Enables Share. */
+  sharePathPrefix?: string;
+  shareId?: string;
+  /** Live spectator count (from usePresence); scorer typically beats=false. */
+  watchingCount?: number | null;
 }
 
 /**
@@ -44,8 +52,11 @@ export function ScorerPad({
   error,
   onAction,
   footer,
+  sharePathPrefix,
+  shareId,
+  watchingCount = null,
 }: Props) {
-  const [showAdjust, setShowAdjust] = useState(false);
+  const [flip, setFlip] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -53,6 +64,17 @@ export function ScorerPad({
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
   }, [m.timeout]);
+
+  const share = async () => {
+    if (!sharePathPrefix || !shareId) return;
+    const url = joinApiUrl(`${sharePathPrefix}/${shareId}`);
+    const title = `${labelA} vs ${labelB}`;
+    try {
+      await Share.share({ message: `${title} — live score\n${url}`, url, title });
+    } catch {
+      /* user cancelled */
+    }
+  };
 
   /* -------- not started: choose serve -------- */
   if (m.status === "scheduled") {
@@ -76,6 +98,9 @@ export function ScorerPad({
           <TeamLogo logo={logoB} color={colorB} size={44} />
           <Text style={s.serveText}>{labelB}</Text>
         </Pressable>
+        {sharePathPrefix && shareId ? (
+          <Btn title="Share spectator link" variant="ghost" onPress={() => void share()} />
+        ) : null}
         <ErrorText>{error}</ErrorText>
         {footer}
       </View>
@@ -87,6 +112,11 @@ export function ScorerPad({
   const locked = busy || done || m.awaitingNext || !!m.timeout;
   const remainingMs = m.timeout ? Math.max(0, m.timeout.endsAt - (now + serverOffset)) : 0;
   const canResume = !!m.timeout && (m.timeout.startedAt === 0 || remainingMs <= 800);
+  const order: Side[] = flip ? ["B", "A"] : ["A", "B"];
+  const balls =
+    m.status === "live" && cur && !m.awaitingNext && !m.timeout
+      ? pressureBalls(cur.a, cur.b, cur.target, m.format, m.setsA, m.setsB, { live: true })
+      : { A: null, B: null };
 
   const pad = (side: Side) => {
     const isA = side === "A";
@@ -97,50 +127,81 @@ export function ScorerPad({
     const serving = m.serve === side && !done;
     const toUsed = isA ? cur.toA : cur.toB;
     return (
-      <Pressable
-        key={side}
-        disabled={locked}
-        onPress={() => onAction("point", { side })}
-        style={({ pressed }) => [
-          s.pad,
-          { borderColor: color, opacity: locked && !pressed ? 0.7 : 1, backgroundColor: pressed ? color + "33" : colors.card },
-        ]}
-      >
-        <Row style={{ justifyContent: "space-between", alignSelf: "stretch" }}>
-          <Row gap={8} style={{ flex: 1 }}>
-            <TeamLogo logo={isA ? logoA : logoB} color={color} size={28} />
-            <Text style={s.padLabel} numberOfLines={1}>
-              {label}
+      <View key={side} style={{ gap: 6 }}>
+        <Pressable
+          disabled={locked}
+          onPress={() => onAction("point", { side })}
+          style={({ pressed }) => [
+            s.pad,
+            { borderColor: color, opacity: locked && !pressed ? 0.7 : 1, backgroundColor: pressed ? color + "33" : colors.card },
+          ]}
+        >
+          <Row style={{ justifyContent: "space-between", alignSelf: "stretch" }}>
+            <Row gap={8} style={{ flex: 1 }}>
+              <TeamLogo logo={isA ? logoA : logoB} color={color} size={28} />
+              <Text style={s.padLabel} numberOfLines={1}>
+                {label}
+              </Text>
+            </Row>
+            <Text style={s.padSets}>Sets {setsWon}</Text>
+          </Row>
+          <PressureBallBadge kind={balls[side]} />
+          <Text style={[s.padScore, { color }]}>{pts}</Text>
+          <Row style={{ justifyContent: "space-between", alignSelf: "stretch" }}>
+            <Text style={{ color: colors.muted }}>{serving ? "🏐 Serving" : " "}</Text>
+            <Text style={{ color: colors.muted }}>
+              TO {toUsed}/{m.format.timeouts}
             </Text>
           </Row>
-          <Text style={s.padSets}>Sets {setsWon}</Text>
-        </Row>
-        <Text style={[s.padScore, { color }]}>{pts}</Text>
-        <Row style={{ justifyContent: "space-between", alignSelf: "stretch" }}>
-          <Text style={{ color: colors.muted }}>{serving ? "🏐 Serving" : " "}</Text>
-          <Text style={{ color: colors.muted }}>
-            TO {toUsed}/{m.format.timeouts}
-          </Text>
-        </Row>
-      </Pressable>
+        </Pressable>
+        {!done && (
+          <Row gap={8}>
+            <Btn
+              small
+              variant="secondary"
+              style={{ flex: 1 }}
+              title="−1"
+              disabled={busy || !!m.timeout}
+              onPress={() => onAction("adjust", { side, delta: -1 })}
+            />
+            <Btn
+              small
+              variant="secondary"
+              style={{ flex: 1 }}
+              title="+1"
+              disabled={busy || !!m.timeout}
+              onPress={() => onAction("adjust", { side, delta: 1 })}
+            />
+          </Row>
+        )}
+      </View>
     );
   };
 
   return (
     <View style={{ gap: 12 }}>
-      <Row style={{ justifyContent: "space-between" }}>
+      <Row style={{ justifyContent: "space-between", alignItems: "center" }}>
         <Text style={s.setInfo}>
           Set {m.cur + 1} of {m.format.bestOf} · to {cur.target}
         </Text>
-        <Text style={[s.setInfo, { color: m.status === "live" ? colors.live : colors.good }]}>
-          {m.status === "live" ? "● LIVE" : "FINAL"}
-        </Text>
+        <Row gap={10}>
+          <WatchingLine count={watchingCount} />
+          <Text style={[s.setInfo, { color: m.status === "live" ? colors.live : colors.good }]}>
+            {m.status === "live" ? "● LIVE" : "FINAL"}
+          </Text>
+        </Row>
+      </Row>
+
+      <Row gap={8}>
+        <Btn title="⇄ Flip sides" variant="ghost" small style={{ flex: 1 }} onPress={() => setFlip((f) => !f)} />
+        {sharePathPrefix && shareId ? (
+          <Btn title="Share" variant="ghost" small style={{ flex: 1 }} onPress={() => void share()} />
+        ) : null}
       </Row>
 
       {m.switchNow && <Text style={s.banner}>🔄 Switch sides!</Text>}
 
-      {pad("A")}
-      {pad("B")}
+      {order.map((side) => pad(side))}
 
       {m.timeout && (
         <View style={s.timeoutBox}>
@@ -149,6 +210,7 @@ export function ScorerPad({
           </Text>
           <Text style={s.timeoutClock}>{m.timeout.startedAt ? Math.ceil(remainingMs / 1000) + "s" : "…"}</Text>
           <Btn title="Resume play" onPress={() => onAction("resume")} disabled={busy || !canResume} />
+          <Btn title="Undo timeout" variant="ghost" onPress={() => onAction("undo")} disabled={busy} />
         </View>
       )}
 
@@ -157,7 +219,16 @@ export function ScorerPad({
           <Text style={s.timeoutText}>
             Set {m.cur + 1} to {m.sets[m.cur].winner === "A" ? labelA : labelB}
           </Text>
-          <Btn title={`Start set ${m.cur + 2}`} onPress={() => onAction("nextSet")} loading={busy} />
+          <Muted>Teams switch sides for the next set.</Muted>
+          <Btn
+            title={`Start set ${m.cur + 2}`}
+            onPress={() => {
+              setFlip((f) => !f);
+              onAction("nextSet");
+            }}
+            loading={busy}
+          />
+          <Btn title="Undo last point" variant="ghost" onPress={() => onAction("undo")} disabled={busy} />
         </View>
       )}
 
@@ -170,53 +241,25 @@ export function ScorerPad({
         </View>
       )}
 
-      <Row gap={8}>
-        <Btn
-          title={`TO ${labelA.slice(0, 8)}`}
-          variant="secondary"
-          style={{ flex: 1 }}
-          small
-          disabled={locked || cur.toA >= m.format.timeouts}
-          onPress={() => onAction("timeout", { side: "A" })}
-        />
-        <Btn
-          title="Undo"
-          variant="ghost"
-          style={{ flex: 1 }}
-          small
-          disabled={busy}
-          onPress={() => onAction("undo")}
-        />
-        <Btn
-          title={`TO ${labelB.slice(0, 8)}`}
-          variant="secondary"
-          style={{ flex: 1 }}
-          small
-          disabled={locked || cur.toB >= m.format.timeouts}
-          onPress={() => onAction("timeout", { side: "B" })}
-        />
-      </Row>
-
-      <Pressable onPress={() => setShowAdjust((v) => !v)}>
-        <Text style={{ color: colors.accent, textAlign: "center" }}>
-          {showAdjust ? "Hide score corrections" : "Score corrections (±1)"}
-        </Text>
-      </Pressable>
-      {showAdjust && (
-        <Row gap={8} style={{ flexWrap: "wrap" }}>
-          {(["A", "B"] as Side[]).flatMap((side) =>
-            ([-1, 1] as const).map((d) => (
-              <Btn
-                key={side + d}
-                small
-                variant="secondary"
-                style={{ flexGrow: 1 }}
-                title={`${side === "A" ? labelA.slice(0, 8) : labelB.slice(0, 8)} ${d > 0 ? "+1" : "−1"}`}
-                disabled={busy || !!m.timeout}
-                onPress={() => onAction("adjust", { side, delta: d })}
-              />
-            )),
-          )}
+      {!done && (
+        <Row gap={8}>
+          <Btn
+            title={`TO ${labelA.slice(0, 8)}`}
+            variant="secondary"
+            style={{ flex: 1 }}
+            small
+            disabled={locked || cur.toA >= m.format.timeouts}
+            onPress={() => onAction("timeout", { side: "A" })}
+          />
+          <Btn title="Undo" variant="ghost" style={{ flex: 1 }} small disabled={busy} onPress={() => onAction("undo")} />
+          <Btn
+            title={`TO ${labelB.slice(0, 8)}`}
+            variant="secondary"
+            style={{ flex: 1 }}
+            small
+            disabled={locked || cur.toB >= m.format.timeouts}
+            onPress={() => onAction("timeout", { side: "B" })}
+          />
         </Row>
       )}
 
@@ -245,7 +288,7 @@ const s = StyleSheet.create({
     padding: 16,
     alignItems: "center",
     gap: 6,
-    minHeight: 190,
+    minHeight: 170,
     justifyContent: "space-between",
   },
   padLabel: { color: colors.text, fontSize: 18, fontWeight: "700", flexShrink: 1 },
@@ -259,6 +302,7 @@ const s = StyleSheet.create({
     padding: 10,
     borderRadius: radius.sm,
     fontSize: 16,
+    overflow: "hidden",
   },
   timeoutBox: {
     backgroundColor: colors.cardAlt,

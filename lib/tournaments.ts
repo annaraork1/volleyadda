@@ -1,13 +1,23 @@
 import type { Registry, TournamentMeta } from "./types";
 
-export const REGISTRY_KEY = "tnhvpl:registry";
-export const DEFAULT_TOURNAMENT_KEY = process.env.TOURNAMENT_KEY || "tnhvpl-s5";
+/** Logical registry key; physical Redis key is namespaced via REDIS_KEY_PREFIX (vada:registry). */
+export const REGISTRY_KEY = "registry";
+export const DEFAULT_TOURNAMENT_KEY = process.env.TOURNAMENT_KEY || "demo";
 export const DEFAULT_LOGO = "/logo.png";
 
 const KEY_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;
 
 export function isValidTournamentKey(key: string): boolean {
   return KEY_RE.test(key) && key.length >= 2 && key.length <= 40;
+}
+
+export function isValidPublicCode(code: string): boolean {
+  return CODE_RE.test(code.trim().toUpperCase());
+}
+
+export function normalizePublicCode(code: string): string {
+  return code.trim().toUpperCase();
 }
 
 export function emptyRegistry(seed?: TournamentMeta): Registry {
@@ -15,10 +25,10 @@ export function emptyRegistry(seed?: TournamentMeta): Registry {
     seed ??
     ({
       key: DEFAULT_TOURNAMENT_KEY,
-      name: "TNHVPL Season 5",
-      short: "TNHVPL",
-      subtitle: "TNH Volleyball · Season 5",
-      dates: "31 Oct – 1 Nov 2026",
+      name: "VolleyAdda Demo",
+      short: "VolleyAdda",
+      subtitle: "Volleyball scoring · Demo",
+      dates: "",
       logo: DEFAULT_LOGO,
       createdAt: Date.now(),
     } satisfies TournamentMeta);
@@ -34,11 +44,12 @@ export function normalizeRegistry(raw: Registry | null | undefined, fallbackMeta
     .map((t) => ({
       key: t.key,
       name: String(t.name || t.key).slice(0, 60),
-      short: String(t.short || "TNHVPL").slice(0, 20),
+      short: String(t.short || "VolleyAdda").slice(0, 20),
       subtitle: String(t.subtitle || "").slice(0, 80),
       dates: String(t.dates || "").slice(0, 60),
       logo: String(t.logo || DEFAULT_LOGO).slice(0, 400_000),
       createdAt: Number(t.createdAt) || Date.now(),
+      publicCode: typeof t.publicCode === "string" && isValidPublicCode(t.publicCode) ? normalizePublicCode(t.publicCode) : undefined,
     }));
   if (!tournaments.length) return emptyRegistry(fallbackMeta);
   const activeKey = tournaments.some((t) => t.key === raw.activeKey) ? raw.activeKey : tournaments[0].key;

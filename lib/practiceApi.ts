@@ -29,9 +29,12 @@ export async function fetchPracticeHistory() {
   return { ok: true as const, matches: r.matches };
 }
 
-export async function fetchPractice(id: string, hostToken: string | null) {
-  const q = hostToken ? `?hostToken=${encodeURIComponent(hostToken)}` : "";
-  const res = await fetch(`/api/practice/${encodeURIComponent(id)}${q}`, { cache: "no-store" });
+export async function fetchPractice(id: string, hostToken: string | null, scorerToken?: string | null) {
+  const q = new URLSearchParams();
+  if (hostToken) q.set("hostToken", hostToken);
+  if (scorerToken) q.set("scorerToken", scorerToken);
+  const qs = q.toString();
+  const res = await fetch(`/api/practice/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`, { cache: "no-store" });
   return parse<{ match: PracticeMatchPublic; state: MatchState | null }>(res);
 }
 
@@ -50,5 +53,23 @@ export async function practiceAct(
     match?: PracticeMatchPublic;
     hostToken?: string;
     state?: MatchState;
+    inviteId?: string;
+    scorerToken?: string;
   }>(res);
+}
+
+export async function practiceInviteScorer(
+  id: string,
+  hostToken: string,
+  input: { email?: string },
+) {
+  return practiceAct({ type: "inviteScorer", id, hostToken, ...input });
+}
+
+export async function practiceRevokeScorer(id: string, hostToken: string, inviteId: string) {
+  return practiceAct({ type: "revokeScorer", id, hostToken, inviteId });
+}
+
+export async function practiceClaimScorer(id: string, scorerToken?: string) {
+  return practiceAct({ type: "claimScorer", id, scorerToken });
 }

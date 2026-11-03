@@ -238,6 +238,8 @@ export interface TournamentMeta {
   /** Data URL, public path, or absolute URL — used as nav brand logo. */
   logo: string;
   createdAt: number;
+  /** Short share code (6 chars). Optional on legacy seasons. */
+  publicCode?: string;
 }
 
 export interface Registry {

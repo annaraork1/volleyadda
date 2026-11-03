@@ -20,6 +20,44 @@ export function Loading({ label }: { label?: string }) {
   );
 }
 
+/** Empty state when no tournament is selected (Phase 1/6). */
+export function NoTournamentSelected({
+  title = "Pick a tournament",
+  body = "Select a tournament from Home, open a share link, or create one.",
+}: {
+  title?: string;
+  body?: string;
+}) {
+  return (
+    <div className="card stack" style={{ textAlign: "center", gap: 12, padding: 28 }}>
+      <h2 style={{ margin: 0 }}>{title}</h2>
+      <p className="muted" style={{ margin: 0 }}>
+        {body}
+      </p>
+      <div className="row" style={{ justifyContent: "center", flexWrap: "wrap", gap: 8 }}>
+        <Link className="btn gold" href="/">
+          Home
+        </Link>
+        <Link className="btn" href="/practice">
+          Practice
+        </Link>
+        <Link className="btn" href="/tournament/create">
+          Create tournament
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/** Waits for season selection + state; shows empty when none selected. */
+export function LiveGate({ children, loadingLabel }: { children: React.ReactNode; loadingLabel?: string }) {
+  const { season, seasonReady, state, loading } = useLive();
+  if (!seasonReady || (season && loading && !state)) return <Loading label={loadingLabel} />;
+  if (!season) return <NoTournamentSelected />;
+  if (!state) return <Loading label={loadingLabel} />;
+  return <>{children}</>;
+}
+
 export function Logo({ team, size = 36 }: { team?: Team; size?: number }) {
   if (!team)
     return (
@@ -186,13 +224,16 @@ export function PinGate({
         } else setMsg("");
       }}
     >
-      <h2>{need === "admin" ? "Admin" : "Staff"} PIN</h2>
+      <h2>{need === "admin" ? "Organiser" : "Staff"} PIN</h2>
       <p className="muted">
         {role === "scorer" && need === "admin"
-          ? "This page needs the admin PIN."
+          ? "This page needs the organiser PIN, or sign in as organiser."
           : need === "scorer" || need === "fixtures"
-            ? "Enter the admin or scorer PIN to continue. It stays on this phone."
-            : "Enter the PIN to continue. It stays on this phone."}
+            ? "Sign in as organiser/scorer, or enter the venue scorer PIN. It stays on this device."
+            : "Sign in as organiser, or enter the organiser PIN. It stays on this device."}
+      </p>
+      <p className="muted">
+        <Link href="/auth/login?next=/admin">Sign in</Link> if you organise this tournament with an account.
       </p>
       <input
         inputMode="numeric"

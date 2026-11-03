@@ -1,11 +1,19 @@
 "use client";
 
 import { useLive } from "@/components/LiveProvider";
-import { Loading, MatchRow, fmtDate } from "@/components/ui";
+import { LiveGate, MatchRow, fmtDate } from "@/components/ui";
 
 export default function Fixtures() {
+  return (
+    <LiveGate>
+      <FixturesInner />
+    </LiveGate>
+  );
+}
+
+function FixturesInner() {
   const { state } = useLive();
-  if (!state) return <Loading />;
+  if (!state) return null;
   const fx = [...state.config.fixtures].sort((a, b) => a.no - b.no);
   const days = Array.from(new Set(fx.map((f) => f.date)));
   return (

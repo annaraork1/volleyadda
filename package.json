@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "seed:s5": "npx --yes tsx scripts/seed-tnhvpl-s5.mjs"
   },
   "dependencies": {
     "@upstash/redis": "1.39.0",

@@ -8,7 +8,7 @@ import { adjustEvent } from "@/lib/scoreAdjust";
 import { stageBlocksAction } from "@/lib/stageLocks";
 import { appendAudit, getTournamentMeta } from "@/lib/authStore";
 import { canAuctioneer, canOrganise, canScore, ensureTournamentOwned, ownerTeamId as memberOwnerTeam } from "@/lib/membership";
-import { hashOwnerPin, verifyOwnerPin } from "@/lib/ownerAuth";
+import { hashOwnerPin, newSalt, verifyOwnerPin } from "@/lib/ownerAuth";
 import { isSuperadminEmail, requireUser } from "@/lib/session";
 import type { UserRecord } from "@/lib/authTypes";
 import {
@@ -165,6 +165,23 @@ export async function POST(req: Request) {
     }
   }
 
+  // Per-tournament venue scorer PIN (preferred over legacy env SCORER_PIN).
+  if (!role && pin && season) {
+    try {
+      const peek = await loadState(season);
+      const tMeta = await getTournamentMeta(peek.tournamentKey);
+      if (
+        tMeta?.scorerPinHash &&
+        tMeta.scorerPinSalt &&
+        verifyOwnerPin(pin, tMeta.scorerPinSalt, tMeta.scorerPinHash)
+      ) {
+        role = "scorer";
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (!role) role = staffRoleFor(pin);
 
   if (!role && pin && (type === "checkPin" || OWNER_OK.has(type) || teamIdHint)) {
@@ -250,6 +267,22 @@ export async function POST(req: Request) {
         if (after.status !== "done") m.bestPlayer = null;
         return m;
       });
+      if (type === "start") {
+        try {
+          const { listFollowerIds } = await import("@/lib/followStore");
+          const { pushNoticeMany } = await import("@/lib/notifyStore");
+          const followers = await listFollowerIds(prefix);
+          await pushNoticeMany(followers, {
+            type: "match_live",
+            title: "Match live",
+            body: `${state.config.tournament.name}: ${fx.stage} · Match ${fx.no} just started.`,
+            tournamentKey: prefix,
+            matchId: id,
+          });
+        } catch {
+          /* non-fatal */
+        }
+      }
     } else if (type === "setBestPlayer") {
       if (!fx) return err("Unknown match", 404);
       const calc = computeAll(state);
@@ -326,6 +359,10 @@ export async function POST(req: Request) {
     } else if (type === "saveFixtures") {
       const list = body.fixtures as Pick<Fixture, "id" | "date" | "day" | "time">[];
       if (!Array.isArray(list)) return err("Bad fixtures", 400);
+      const lockMeta = await getTournamentMeta(prefix);
+      if (lockMeta?.fixturesLocked && role === "scorer") {
+        return err("Fixtures are locked by the organiser", 403);
+      }
       await updateConfig(prefix, (c) => ({
         ...c,
         fixtures: c.fixtures.map((f) => {
@@ -335,8 +372,68 @@ export async function POST(req: Request) {
             : f;
         }),
       }));
+      if (role === "scorer" && sessionUser) {
+        const { saveTournamentMeta } = await import("@/lib/authStore");
+        const meta = (await getTournamentMeta(prefix)) || null;
+        if (meta) {
+          const notice = {
+            id: `n_${Date.now().toString(36)}`,
+            at: Date.now(),
+            byEmail: sessionUser.email,
+            message: "A scorer updated fixture times or schedule details.",
+          };
+          meta.organiserNotices = [notice, ...(meta.organiserNotices || [])].slice(0, 50);
+          await saveTournamentMeta(prefix, meta);
+          try {
+            const { pushNoticeMany } = await import("@/lib/notifyStore");
+            const organiserIds = meta.members
+              .filter((m) => m.role === "organiser")
+              .map((m) => m.userId);
+            if (meta.ownerUserId) organiserIds.push(meta.ownerUserId);
+            await pushNoticeMany(organiserIds, {
+              type: "fixture_edit",
+              title: "Fixtures updated",
+              body: `${sessionUser.email} changed fixtures on ${prefix}.`,
+              tournamentKey: prefix,
+            });
+          } catch {
+            /* non-fatal */
+          }
+        }
+      }
+    } else if (type === "setTournamentScorerPin") {
+      if (!sessionUser || role !== "admin") return err("Organiser required", 403);
+      const newPin = String(body.pin ?? "").trim();
+      if (newPin.length < 4 || newPin.length > 12) return err("Scorer PIN must be 4–12 characters", 400);
+      const { saveTournamentMeta } = await import("@/lib/authStore");
+      const meta = await getTournamentMeta(prefix);
+      if (!meta) return err("Tournament membership missing", 404);
+      const salt = newSalt();
+      meta.scorerPinSalt = salt;
+      meta.scorerPinHash = hashOwnerPin(newPin, salt);
+      await saveTournamentMeta(prefix, meta);
+    } else if (type === "clearTournamentScorerPin") {
+      if (!sessionUser || role !== "admin") return err("Organiser required", 403);
+      const { saveTournamentMeta } = await import("@/lib/authStore");
+      const meta = await getTournamentMeta(prefix);
+      if (!meta) return err("Tournament membership missing", 404);
+      delete meta.scorerPinHash;
+      delete meta.scorerPinSalt;
+      await saveTournamentMeta(prefix, meta);
+    } else if (type === "setFixturesLocked") {
+      if (!sessionUser || role !== "admin") return err("Organiser required", 403);
+      const { saveTournamentMeta } = await import("@/lib/authStore");
+      const meta = await getTournamentMeta(prefix);
+      if (!meta) return err("Tournament membership missing", 404);
+      meta.fixturesLocked = body.locked === true;
+      await saveTournamentMeta(prefix, meta);
     } else if (type === "generateFixturesPreview") {
-      if (role !== "admin") return err("Admin PIN needed", 403);
+      if (role !== "admin") return err("Organiser required", 403);
+      if (state.config.teams.length < 2) return err("Add at least two teams first", 400);
+      const hasRoster =
+        state.config.players.length > 0 ||
+        state.config.teams.some((t) => Array.isArray(t.squad) && t.squad.length > 0);
+      if (!hasRoster) return err("Add players or team rosters before generating fixtures", 400);
       const input = body.input as FixtureGenSettings;
       if (!input?.days?.length) return err("Add at least one day", 400);
       const teamOrder =
@@ -363,7 +460,11 @@ export async function POST(req: Request) {
         { headers: { "Cache-Control": "no-store" } },
       );
     } else if (type === "saveGeneratedFixtures") {
-      if (role !== "admin") return err("Admin PIN needed", 403);
+      if (role !== "admin") return err("Organiser required", 403);
+      const hasRoster =
+        state.config.players.length > 0 ||
+        state.config.teams.some((t) => Array.isArray(t.squad) && t.squad.length > 0);
+      if (!hasRoster) return err("Add players or team rosters before saving fixtures", 400);
       const list = body.fixtures as Fixture[];
       if (!Array.isArray(list) || !list.length) return err("No fixtures", 400);
       const hasEvents = Object.values(state.matches).some((m) => m.ev?.length);
@@ -436,21 +537,29 @@ export async function POST(req: Request) {
     } else if (type === "createTournament") {
       if (!sessionUser) return err("Sign in required to create a tournament", 401);
       if (!sessionUser.emailVerified) return err("Verify your email before creating a tournament", 403);
-      const key = String(body.key ?? "").trim().toLowerCase();
+      const requestedKey = String(body.key ?? "").trim().toLowerCase();
       const mode = body.mode === "blank" ? "blank" : body.mode === "clone" ? "clone" : "blank";
-      await createTournamentSeason({
-        key,
-        name: String(body.name ?? key),
+      const created = await createTournamentSeason({
+        key: requestedKey || undefined,
+        name: String(body.name ?? "").trim() || "Untitled tournament",
         short: String(body.short ?? "VolleyAdda"),
         subtitle: String(body.subtitle ?? ""),
         dates: String(body.dates ?? ""),
-        logo: String(body.logo ?? DEFAULT_LOGO),
+        logo: String(body.logo ?? ""),
         mode,
         cloneFrom: typeof body.cloneFrom === "string" ? body.cloneFrom : undefined,
         cloneStyle: body.cloneStyle === "archive" ? "archive" : "workflow",
       });
+      const key = created.key;
       const visibility = body.visibility === "public" ? "public" : "link";
       await ensureTournamentOwned(key, sessionUser, { visibility });
+      // Registration open by default at create; organiser can stop before auction (stage tools).
+      if (body.registrationOpen === false) {
+        await updateConfig(key, (c) => ({
+          ...c,
+          registration: { ...(c.registration || defaultRegistrationSettings()), open: false },
+        }));
+      }
       if (body.startAt === "matches") {
         await updateConfig(key, (c) => ({
           ...c,
@@ -460,7 +569,25 @@ export async function POST(req: Request) {
             { at: Date.now(), from: (c.stage || "registration") as SeasonStage, to: "matches", by: sessionUser.email },
           ],
         }));
+      } else if (body.startAt === "auction") {
+        await updateConfig(key, (c) => ({
+          ...c,
+          stage: "auction",
+          stageLog: [
+            ...(c.stageLog || []),
+            { at: Date.now(), from: (c.stage || "registration") as SeasonStage, to: "auction", by: sessionUser.email },
+          ],
+        }));
       }
+      return NextResponse.json(
+        {
+          ok: true,
+          key,
+          publicCode: created.publicCode,
+          state: await loadState(key),
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
     } else if (type === "inviteMember") {
       if (!sessionUser || role !== "admin") return err("Organiser required", 403);
       const { inviteMember } = await import("@/lib/membership");

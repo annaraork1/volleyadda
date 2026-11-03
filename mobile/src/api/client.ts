@@ -6,7 +6,6 @@ import type {
   AuctionSettings,
   AuctionState,
   Format,
-  PracticeLiveRef,
   PracticeMatchPublic,
   PracticeSummary,
   SeasonStage,
@@ -232,6 +231,17 @@ export async function authVerify(token: string): Promise<AuthResult> {
   return r;
 }
 
+/** Reset password with token from email; stores session on success. */
+export async function authReset(token: string, password: string): Promise<AuthResult> {
+  const r = await request<AuthResult>("/api/auth/reset", {
+    method: "POST",
+    body: { token, password },
+    quiet401: true,
+  });
+  if (r.token) await setToken(r.token);
+  return r;
+}
+
 /* ------------------------------------------------------------------ */
 /* Live state + actions                                                 */
 /* ------------------------------------------------------------------ */
@@ -271,6 +281,7 @@ export interface TournamentListItem {
   subtitle: string;
   dates: string;
   logo: string;
+  publicCode?: string;
   stage: SeasonStage | string;
   visibility?: "link" | "public";
   role?: string | null;
@@ -284,26 +295,141 @@ export async function listPublicTournaments(): Promise<TournamentListItem[]> {
   const r = await request<{ tournaments: TournamentListItem[] }>("/api/tournaments/public", { quiet401: true });
   return r.tournaments || [];
 }
-export async function createTournament(input: {
+
+export async function lookupTournament(opts: { code?: string; key?: string }): Promise<{
   key: string;
+  publicCode?: string;
+  name: string;
+  logo: string;
+  visibility?: string;
+}> {
+  const r = await request<{
+    ok: true;
+    key: string;
+    publicCode?: string;
+    name: string;
+    logo: string;
+    visibility?: string;
+  }>("/api/tournaments/lookup", {
+    query: { code: opts.code || undefined, key: opts.key || undefined },
+    quiet401: true,
+  });
+  return r;
+}
+
+export interface TournamentAccess {
+  ok: true;
+  key: string;
+  fixturesLocked: boolean;
+  hasScorerPin: boolean;
+  isOrganiser: boolean;
+  invites: { emailNorm: string; role: string; teamId?: string; at: number }[];
+  members: { userId: string; role: string; teamId?: string; email?: string }[];
+  organiserNotices: { id: string; at: number; byEmail: string; message: string; read?: boolean }[];
+}
+
+export async function fetchTournamentAccess(season: string): Promise<TournamentAccess> {
+  return request<TournamentAccess>("/api/tournaments/access", { query: { season } });
+}
+
+/* ------------------------------------------------------------------ */
+/* Follow + in-app notices                                              */
+/* ------------------------------------------------------------------ */
+
+export async function getFollowing(season?: string): Promise<{
+  following?: boolean;
+  canFollow?: boolean;
+  keys?: string[];
+}> {
+  if (season) {
+    const r = await request<{ ok: true; following: boolean; canFollow?: boolean }>("/api/follow", {
+      query: { season },
+      quiet401: true,
+    });
+    return { following: r.following, canFollow: r.canFollow };
+  }
+  const r = await request<{ ok: true; keys: string[] }>("/api/follow", { quiet401: true });
+  return { keys: r.keys || [] };
+}
+
+export async function setFollowing(season: string, follow: boolean): Promise<boolean> {
+  const r = await request<{ ok: true; following: boolean }>("/api/follow", {
+    method: "POST",
+    body: { season, follow },
+  });
+  return !!r.following;
+}
+
+export interface AppNotice {
+  id: string;
+  at: number;
+  type: string;
+  title: string;
+  body: string;
+  tournamentKey?: string;
+  practiceId?: string;
+  matchId?: string;
+  read?: boolean;
+}
+
+export async function listNotices(): Promise<{ notices: AppNotice[]; unread: number }> {
+  const r = await request<{ ok: true; notices: AppNotice[]; unread: number }>("/api/notices");
+  return { notices: r.notices || [], unread: r.unread || 0 };
+}
+
+export async function markNoticesRead(id?: string): Promise<{ notices: AppNotice[]; unread: number }> {
+  const r = await request<{ ok: true; notices: AppNotice[]; unread: number }>("/api/notices", {
+    method: "POST",
+    body: { type: "markRead", id },
+  });
+  return { notices: r.notices || [], unread: r.unread || 0 };
+}
+
+export async function createTournament(input: {
   name: string;
   short?: string;
   subtitle?: string;
   dates?: string;
+  logo: string;
   visibility?: "link" | "public";
-  startAt?: "matches";
-}): Promise<void> {
-  await postAction({ type: "createTournament", mode: "blank", ...input, season: undefined });
+  mode?: "blank" | "clone";
+  cloneFrom?: string;
+  startAt?: "registration" | "auction" | "matches";
+  registrationOpen?: boolean;
+}): Promise<{ key: string; publicCode: string }> {
+  const r = await postAction({
+    type: "createTournament",
+    mode: input.mode || "blank",
+    name: input.name,
+    short: input.short,
+    subtitle: input.subtitle,
+    dates: input.dates,
+    logo: input.logo,
+    visibility: input.visibility ?? "link",
+    cloneFrom: input.cloneFrom,
+    startAt: input.startAt === "matches" || input.startAt === "auction" ? input.startAt : undefined,
+    registrationOpen: input.registrationOpen,
+    season: undefined,
+  });
+  const key = typeof r.key === "string" ? r.key : "";
+  const publicCode = typeof r.publicCode === "string" ? r.publicCode : "";
+  if (!key) throw new Error("Create succeeded but no tournament key returned");
+  return { key, publicCode };
 }
 
 /* ------------------------------------------------------------------ */
 /* Practice                                                              */
 /* ------------------------------------------------------------------ */
 
+/** Live board row from GET /api/practice (same shape as web PracticeLiveBoardItem). */
+export interface PracticeLiveBoardItem {
+  match: PracticeMatchPublic;
+  state: MatchState;
+}
 export interface PracticeListResult {
   ok: true;
   matches: PracticeSummary[];
-  live: PracticeLiveRef[];
+  live: PracticeLiveBoardItem[];
 }
 export interface PracticeDetail {
   ok: true;
@@ -313,11 +439,25 @@ export interface PracticeDetail {
 
 export const practiceList = () => request<PracticeListResult>("/api/practice", { quiet401: true });
 
-export const practiceGet = (id: string, hostToken?: string | null) =>
+export const practiceGet = (
+  id: string,
+  opts?: { hostToken?: string | null; scorerToken?: string | null },
+) =>
   request<PracticeDetail>(`/api/practice/${encodeURIComponent(id)}`, {
-    query: { hostToken: hostToken || undefined },
+    query: {
+      hostToken: opts?.hostToken || undefined,
+      scorerToken: opts?.scorerToken || undefined,
+    },
     quiet401: true,
   });
+
+export async function fetchCatalog(): Promise<import("../shared").MasterCatalog> {
+  try {
+    return await request<import("../shared").MasterCatalog>("/api/catalog", { quiet401: true });
+  } catch {
+    return { teams: [], players: [] };
+  }
+}
 
 export interface PracticeCreateInput {
   mode: "live" | "quick";
@@ -337,13 +477,20 @@ export const practiceCreate = (input: PracticeCreateInput) =>
 
 export const practiceScore = (
   id: string,
-  hostToken: string | null,
+  tokens: { hostToken?: string | null; scorerToken?: string | null },
   action: "start" | "point" | "timeout" | "adjust" | "resume" | "nextSet" | "undo",
   extra: { side?: Side; serve?: Side; delta?: 1 | -1 } = {},
 ) =>
   request<{ ok: true; match: PracticeMatchPublic; state: MatchState }>("/api/practice", {
     method: "POST",
-    body: { type: "score", id, hostToken, action, ...extra },
+    body: {
+      type: "score",
+      id,
+      hostToken: tokens.hostToken || undefined,
+      scorerToken: tokens.scorerToken || undefined,
+      action,
+      ...extra,
+    },
   });
 
 export const practiceQuickResult = (
@@ -357,14 +504,86 @@ export const practiceQuickResult = (
     body: { type: "quickResult", id, hostToken, setsWon, setScores },
   });
 
-export const practiceComplete = (id: string, hostToken: string | null) =>
+export const practiceComplete = (
+  id: string,
+  tokens: { hostToken?: string | null; scorerToken?: string | null },
+) =>
   request<{ ok: true; match: PracticeMatchPublic }>("/api/practice", {
     method: "POST",
-    body: { type: "complete", id, hostToken },
+    body: {
+      type: "complete",
+      id,
+      hostToken: tokens.hostToken || undefined,
+      scorerToken: tokens.scorerToken || undefined,
+    },
   });
 
 export const practiceAbandon = (id: string, hostToken: string | null) =>
   request<{ ok: true }>("/api/practice", { method: "POST", body: { type: "abandon", id, hostToken } });
+
+export const practiceDelete = (id: string, hostToken: string | null) =>
+  request<{ ok: true }>("/api/practice", { method: "POST", body: { type: "delete", id, hostToken } });
+
+/* ------------------------------------------------------------------ */
+/* Presence                                                              */
+/* ------------------------------------------------------------------ */
+
+export async function presenceBeat(opts: {
+  kind: "t" | "p";
+  id: string;
+  viewerId: string;
+  season?: string | null;
+}): Promise<number> {
+  const r = await request<{ count: number }>("/api/presence", {
+    method: "POST",
+    body: {
+      kind: opts.kind,
+      id: opts.id,
+      viewerId: opts.viewerId,
+      ...(opts.kind === "t" && opts.season ? { season: opts.season } : {}),
+    },
+    quiet401: true,
+  });
+  return r.count ?? 0;
+}
+
+export async function presenceCount(opts: {
+  kind: "t" | "p";
+  id: string;
+  season?: string | null;
+}): Promise<number> {
+  const r = await request<{ count: number }>("/api/presence", {
+    query: {
+      kind: opts.kind,
+      id: opts.id,
+      ...(opts.kind === "t" && opts.season ? { season: opts.season } : {}),
+    },
+    quiet401: true,
+  });
+  return r.count ?? 0;
+}
+
+export const practiceInviteScorer = (
+  id: string,
+  hostToken: string,
+  input: { email?: string; label?: string } = {},
+) =>
+  request<{ ok: true; inviteId: string; scorerToken: string; match: PracticeMatchPublic }>("/api/practice", {
+    method: "POST",
+    body: { type: "inviteScorer", id, hostToken, ...input },
+  });
+
+export const practiceRevokeScorer = (id: string, hostToken: string, inviteId: string) =>
+  request<{ ok: true; match: PracticeMatchPublic }>("/api/practice", {
+    method: "POST",
+    body: { type: "revokeScorer", id, hostToken, inviteId },
+  });
+
+export const practiceClaimScorer = (id: string, scorerToken?: string | null) =>
+  request<{ ok: true; match: PracticeMatchPublic }>("/api/practice", {
+    method: "POST",
+    body: { type: "claimScorer", id, scorerToken: scorerToken || undefined },
+  });
 
 /* ------------------------------------------------------------------ */
 /* Auction                                                               */
@@ -483,3 +702,4 @@ export const registerPlayer = (input: Record<string, unknown>) =>
 
 /** SecureStore key holding the host token for a practice match this device created. */
 export const practiceHostKey = (id: string) => `va_host_${id}`;
+export const practiceScorerKey = (id: string) => `va_scorer_${id}`;

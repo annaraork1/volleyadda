@@ -99,6 +99,17 @@ export async function inviteMember(
     ];
     await saveTournamentMeta(key, meta);
     await addUserTournament(existing.id, key);
+    try {
+      const { pushNotice } = await import("./notifyStore");
+      await pushNotice(existing.id, {
+        type: "invite",
+        title: "Tournament invite",
+        body: `You were added as ${role} on ${key}.`,
+        tournamentKey: key,
+      });
+    } catch {
+      /* non-fatal */
+    }
     return { ok: true };
   }
   meta.invites = [
@@ -133,4 +144,15 @@ export async function acceptInvitesOnTournament(key: string, user: UserRecord): 
   meta.invites = meta.invites.filter((i) => i.emailNorm !== user.emailNorm);
   await saveTournamentMeta(key, meta);
   await addUserTournament(user.id, key);
+  try {
+    const { pushNotice } = await import("./notifyStore");
+    await pushNotice(user.id, {
+      type: "invite",
+      title: "Tournament invite accepted",
+      body: `Your pending invite for ${key} is now active.`,
+      tournamentKey: key,
+    });
+  } catch {
+    /* non-fatal */
+  }
 }

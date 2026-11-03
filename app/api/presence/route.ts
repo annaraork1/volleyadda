@@ -7,19 +7,10 @@ import {
   validViewerId,
   type PresenceKind,
 } from "@/lib/presence";
-import { loadRegistry } from "@/lib/store";
-
 export const dynamic = "force-dynamic";
 
 function parseKind(v: string | null): PresenceKind | null {
   return v === "t" || v === "p" ? v : null;
-}
-
-/** Prefer client season; else registry activeKey (1 GET) — never full loadState. */
-async function resolveSeason(season?: string | null): Promise<string> {
-  if (season && season.trim()) return season.trim();
-  const registry = await loadRegistry();
-  return registry.activeKey;
 }
 
 /** GET ?kind=t|p&id=…&season=…  or  ?kind=…&ids=a,b&season=… */
@@ -30,7 +21,8 @@ export async function GET(req: Request) {
 
   let season = url.searchParams.get("season");
   if (kind === "t") {
-    season = await resolveSeason(season);
+    if (!season?.trim()) return NextResponse.json({ error: "season required" }, { status: 400 });
+    season = season.trim();
   }
 
   const idsParam = url.searchParams.get("ids");
@@ -71,7 +63,8 @@ export async function POST(req: Request) {
 
   let season = body.season ?? null;
   if (kind === "t") {
-    season = await resolveSeason(season);
+    if (!season?.trim()) return NextResponse.json({ error: "season required" }, { status: 400 });
+    season = season.trim();
   }
 
   const count = await heartbeat(kind, id, viewerId, season);

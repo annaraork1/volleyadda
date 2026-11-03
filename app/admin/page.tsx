@@ -5,8 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AdminSeasons } from "@/components/AdminSeasons";
 import { AdminStageBar } from "@/components/AdminStageBar";
 import { useLive } from "@/components/LiveProvider";
+import { OrganiserAccess } from "@/components/OrganiserAccess";
 import { TargetsPerSetInput } from "@/components/TargetsPerSetInput";
-import { Loading, PinGate } from "@/components/ui";
+import { LiveGate, Loading, PinGate } from "@/components/ui";
 import { targetsFitBestOf, trimTargetsToBestOf } from "@/lib/targetsInput";
 import {
   filterCatalogPlayers,
@@ -25,9 +26,11 @@ import type { AuctionSettings, Fixture, Format, Player, Settings, Team, TieKey }
 
 export default function Admin() {
   return (
-    <PinGate need="fixtures">
-      <AdminInner />
-    </PinGate>
+    <LiveGate>
+      <PinGate need="fixtures">
+        <AdminInner />
+      </PinGate>
+    </LiveGate>
   );
 }
 
@@ -36,6 +39,7 @@ const SKILLS = ["Beginner", "Intermediate", "Advanced"] as const;
 
 type AdminTab =
   | "overview"
+  | "access"
   | "registration"
   | "auction"
   | "teams"
@@ -46,6 +50,7 @@ type AdminTab =
 
 const ADMIN_TABS: { id: AdminTab; label: string }[] = [
   { id: "overview", label: "Overview" },
+  { id: "access", label: "Access" },
   { id: "registration", label: "Registration" },
   { id: "auction", label: "Auction" },
   { id: "teams", label: "Teams" },
@@ -381,7 +386,7 @@ function AdminInner() {
   return (
     <>
       <div className="sechead">
-        <h1>{isScorerOnly ? "Fixtures" : "Admin"}</h1>
+        <h1>{isScorerOnly ? "Fixtures" : "Organiser"}</h1>
         <button className="btn ghost" onClick={logout}>Log out</button>
       </div>
       {state.storage === "memory" && (
@@ -394,7 +399,7 @@ function AdminInner() {
       )}
 
       {!isScorerOnly && (
-      <nav className="admin-tabs" aria-label="Admin sections">
+      <nav className="admin-tabs" aria-label="Organiser sections">
         {visibleTabs.map((t) => (
           <button
             key={t.id}
@@ -415,8 +420,8 @@ function AdminInner() {
             <p className="note" style={{ margin: 0 }}>
               All rules, teams, players, fixtures and reset apply only to{" "}
               <b>{seasonLabel}</b> (<code>{state.tournamentKey}</code>
-              {state.viewingArchive ? " · archive view" : " · active"}). Other seasons are unchanged.
-              Open another season from the list below or via <code>/?season=key</code>.
+              {state.viewingArchive ? " · archive view" : ""}). Other seasons are unchanged.
+              Prefer the tournament hub share link, or open via Home.
             </p>
           </section>
           <AdminSeasons />
@@ -424,6 +429,9 @@ function AdminInner() {
           <section className="card stack">
             <h2 style={{ margin: 0 }}>Quick links</h2>
             <div className="row" style={{ flexWrap: "wrap" }}>
+              <button type="button" className="btn" onClick={() => goTab("access")}>
+                Access
+              </button>
               <button type="button" className="btn" onClick={() => goTab("registration")}>
                 Registration
               </button>
@@ -436,8 +444,17 @@ function AdminInner() {
               <Link className="btn ghost" href={seasonHref("/auction/console")}>
                 Auction console
               </Link>
+              <Link className="btn ghost" href={`/tournament/${state.tournamentKey}`}>
+                Tournament hub
+              </Link>
             </div>
           </section>
+        </div>
+      )}
+
+      {tab === "access" && (
+        <div className="admin-panel stack">
+          <OrganiserAccess season={state.tournamentKey} />
         </div>
       )}
 

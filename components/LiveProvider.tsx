@@ -18,8 +18,14 @@ interface Ctx {
   loading: boolean;
   /** Count of in-flight /api/action writes. */
   saving: number;
-  /** Season key from ?season= or active season. */
+  /**
+   * Selected tournament key.
+   * null = no tournament selected (do not fall back to registry activeKey).
+   */
   season: string | null;
+  /** True after localStorage season key has been read. */
+  seasonReady: boolean;
+  setSeason: (key: string | null) => void;
   seasonHref: (path: string) => string;
   refresh: (fresh?: boolean) => Promise<void>;
   act: (
@@ -46,6 +52,7 @@ interface Ctx {
 const LiveCtx = createContext<Ctx | null>(null);
 const PIN_KEY = "tnhvpl-pin";
 const OWNER_TEAM_KEY = "tnhvpl-owner-team";
+const SEASON_KEY = "va_season";
 
 const STAFF_ROLES: StaffRole[] = ["admin", "scorer", "auctioneer", "owner"];
 function asStaffRole(r: unknown): StaffRole | null {
@@ -67,6 +74,23 @@ function readPin() {
   }
 }
 
+function readStoredSeason(): string | null {
+  try {
+    return localStorage.getItem(SEASON_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSeason(key: string | null) {
+  try {
+    if (key) localStorage.setItem(SEASON_KEY, key);
+    else localStorage.removeItem(SEASON_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function checkPin(
   p: string,
   opts?: { teamId?: string; season?: string | null },
@@ -74,7 +98,7 @@ async function checkPin(
   try {
     const r = await fetch("/api/action", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-pin": p },
+      headers: { "content-type": "application/json", ...(p ? { "x-pin": p } : {}) },
       body: JSON.stringify({
         type: "checkPin",
         ...(opts?.teamId ? { teamId: opts.teamId } : {}),
@@ -111,6 +135,8 @@ function withSeason(path: string, season: string | null) {
 export function LiveProvider({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const seasonParam = searchParams.get("season");
+  const [season, setSeasonState] = useState<string | null>(null);
+  const [seasonReady, setSeasonReady] = useState(false);
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState(0);
@@ -126,13 +152,47 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
   const lastRev = useRef(0);
   const hold = useRef(false);
   const liveRef = useRef(false);
-  const seasonRef = useRef(seasonParam);
-  seasonRef.current = seasonParam;
+  const seasonRef = useRef<string | null>(null);
   const hasState = useRef(false);
 
   const setHold = useCallback((h: boolean) => {
     hold.current = h;
   }, []);
+
+  const setSeason = useCallback((key: string | null) => {
+    seasonRef.current = key;
+    setSeasonState(key);
+    writeStoredSeason(key);
+    lastServer.current = 0;
+    lastRev.current = 0;
+    hasState.current = false;
+    setState(null);
+    setError(null);
+    liveRef.current = false;
+    if (key) setLoading(true);
+    else setLoading(false);
+  }, []);
+
+  // Restore persisted season; URL ?season= wins when present.
+  useEffect(() => {
+    const fromUrl = seasonParam?.trim() || null;
+    const stored = readStoredSeason();
+    const initial = fromUrl || stored;
+    seasonRef.current = initial;
+    setSeasonState(initial);
+    if (fromUrl && fromUrl !== stored) writeStoredSeason(fromUrl);
+    if (!initial) setLoading(false);
+    setSeasonReady(true);
+  }, []);
+
+  // Sync URL ?season= into selection after ready.
+  useEffect(() => {
+    if (!seasonReady) return;
+    const fromUrl = seasonParam?.trim() || null;
+    if (fromUrl && fromUrl !== seasonRef.current) {
+      setSeason(fromUrl);
+    }
+  }, [seasonParam, seasonReady, setSeason]);
 
   const setPin = useCallback((p: string) => {
     setPinState(p);
@@ -183,42 +243,41 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
     setPin("");
   }, [setPin]);
 
-  useEffect(() => {
+  const refreshRole = useCallback(async () => {
     const stored = readPin();
     const storedTeam = readOwnerTeam();
-    if (!stored) {
-      setRoleReady(true);
-      return;
-    }
-    setPinState(stored);
-    void checkPin(stored, {
+    setRoleReady(false);
+    if (stored) setPinState(stored);
+    const r = await checkPin(stored, {
       teamId: storedTeam || undefined,
       season: seasonRef.current,
-    }).then((r) => {
-      if (r.ok && r.role) {
-        setRole(r.role);
-        const tid = r.role === "owner" ? r.teamId || storedTeam || null : null;
-        setOwnerTeamId(tid);
-        ownerTeamRef.current = tid;
-      } else {
-        try {
-          localStorage.removeItem(PIN_KEY);
-          localStorage.removeItem(OWNER_TEAM_KEY);
-        } catch {}
-        setPinState("");
-        setRole(null);
-        setOwnerTeamId(null);
-        ownerTeamRef.current = null;
-      }
-      setRoleReady(true);
     });
+    if (r.ok && r.role) {
+      setRole(r.role);
+      const tid = r.role === "owner" ? r.teamId || storedTeam || null : null;
+      setOwnerTeamId(tid);
+      ownerTeamRef.current = tid;
+    } else if (stored) {
+      // Keep PIN for venue devices, but clear stale role if check failed without session.
+      setRole(null);
+      setOwnerTeamId(null);
+      ownerTeamRef.current = null;
+    } else {
+      setRole(null);
+      setOwnerTeamId(null);
+      ownerTeamRef.current = null;
+    }
+    setRoleReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!seasonReady) return;
+    void refreshRole();
+  }, [season, seasonReady, refreshRole]);
 
   const accept = useCallback((s: AppState, fromPoll = false) => {
     if (fromPoll && hold.current) return;
     const rev = matchesRevision(s);
-    // `/api/state` stamps serverTime with Date.now() on every read, so a stale poll
-    // can look "newer" while carrying older match docs — prefer CAS revision.
     if (rev < lastRev.current) return;
     if (rev === lastRev.current && s.serverTime < lastServer.current) return;
     lastRev.current = rev;
@@ -232,14 +291,21 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(
     async (fresh = false) => {
+      const s = seasonRef.current;
+      if (!s) {
+        setState(null);
+        hasState.current = false;
+        setError(null);
+        setLoading(false);
+        liveRef.current = false;
+        return;
+      }
       if (!hasState.current) setLoading(true);
       try {
         const params = new URLSearchParams();
         if (fresh) params.set("fresh", String(Date.now()));
-        const s = seasonRef.current;
-        if (s) params.set("season", s);
-        const q = params.toString();
-        const r = await fetch(q ? `/api/state?${q}` : "/api/state", { cache: "no-store" });
+        params.set("season", s);
+        const r = await fetch(`/api/state?${params}`, { cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         accept(await r.json(), true);
       } catch {
@@ -250,19 +316,24 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
     [accept],
   );
 
-  // Reset poll clock when season query changes.
+  // Reset poll clock when selected season changes.
   useEffect(() => {
+    if (!seasonReady) return;
     lastServer.current = 0;
     lastRev.current = 0;
     hasState.current = false;
     setState(null);
-    setLoading(true);
-    void refresh(true);
-    // intentionally only when ?season= changes
+    if (season) {
+      setLoading(true);
+      void refresh(true);
+    } else {
+      setLoading(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seasonParam]);
+  }, [season, seasonReady]);
 
   useEffect(() => {
+    if (!seasonReady) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let inFlight = false;
@@ -273,11 +344,13 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
       }, delay);
     };
 
-    // First fetch (and pull-to-refresh / bfcache restore) must bypass the edge
-    // cache — otherwise a manual refresh can still show a 1s-stale scoreboard.
     let first = true;
     const tick = async () => {
       if (!alive) return;
+      if (!seasonRef.current) {
+        schedule(5000);
+        return;
+      }
       if (inFlight) {
         schedule(nextPollDelayMs(liveRef.current, 0));
         return;
@@ -302,7 +375,6 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState === "visible") void refresh(true);
     };
     const onPageShow = (e: PageTransitionEvent) => {
-      // Pull-to-refresh and bfcache restore both fire pageshow; always revalidate.
       void refresh(true);
       if (e.persisted) first = true;
     };
@@ -314,24 +386,25 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pageshow", onPageShow);
     };
-  }, [refresh]);
+  }, [refresh, seasonReady]);
 
   const act = useCallback(
     async (type: string, payload: Record<string, unknown> = {}, opts?: { noAccept?: boolean }) => {
-      // Optimistic scorers use noAccept + local pending; skip the global Saving bar
-      // so the pad doesn't jump when the strip mounts/unmounts.
+      if (!seasonRef.current && type !== "createTournament") {
+        return { ok: false, error: "Select a tournament first" };
+      }
       const trackSave = !opts?.noAccept;
       if (trackSave) setSaving((n) => n + 1);
       try {
-        const season = seasonRef.current;
+        const seasonKey = seasonRef.current;
         const ot = ownerTeamRef.current;
         const r = await fetch("/api/action", {
           method: "POST",
-          headers: { "content-type": "application/json", "x-pin": readPin() },
+          headers: { "content-type": "application/json", ...(readPin() ? { "x-pin": readPin() } : {}) },
           body: JSON.stringify({
             type,
             ...payload,
-            ...(season ? { season } : {}),
+            ...(seasonKey ? { season: seasonKey } : {}),
             ...(ot && !payload.teamId ? { teamId: ot } : {}),
           }),
         });
@@ -352,8 +425,7 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
   const calc = useMemo(() => (state ? computeAll(state) : null), [state]);
   liveRef.current = anyMatchLive(calc?.ms);
   const team = useCallback((id: string | null | undefined) => state?.config.teams.find((t) => t.id === id), [state]);
-  const season = seasonParam || state?.tournamentKey || null;
-  const seasonHref = useCallback((path: string) => withSeason(path, seasonParam), [seasonParam]);
+  const seasonHref = useCallback((path: string) => withSeason(path, season), [season]);
 
   return (
     <LiveCtx.Provider
@@ -365,6 +437,8 @@ export function LiveProvider({ children }: { children: React.ReactNode }) {
         loading,
         saving,
         season,
+        seasonReady,
+        setSeason,
         seasonHref,
         refresh,
         act,

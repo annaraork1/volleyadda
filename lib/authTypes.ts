@@ -46,6 +46,14 @@ export interface MembershipEntry {
   addedAt: number;
 }
 
+export interface OrganiserNotice {
+  id: string;
+  at: number;
+  byEmail: string;
+  message: string;
+  read?: boolean;
+}
+
 export interface TournamentMetaExt {
   ownerUserId: string;
   visibility: "link" | "public";
@@ -54,6 +62,15 @@ export interface TournamentMetaExt {
   /** Pending invites by emailNorm → role (+ optional teamId). */
   invites?: { emailNorm: string; role: TournamentRole; teamId?: string; at: number }[];
   createdAt: number;
+  /** Venue device scorer PIN (hashed). One per tournament. */
+  scorerPinHash?: string;
+  scorerPinSalt?: string;
+  /** When true, scorers cannot edit fixtures (organiser only). */
+  fixturesLocked?: boolean;
+  /** In-app notices for organisers (e.g. scorer edited fixtures). */
+  organiserNotices?: OrganiserNotice[];
+  /** User ids following this public tournament (live-match notifies). */
+  followerIds?: string[];
 }
 
 export interface SupportTicket {

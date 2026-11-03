@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { GoogleSignIn } from "@/components/GoogleSignIn";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -58,10 +59,11 @@ export default function SignupPage() {
           autoComplete="new-password"
         />
       </label>
-      {error && <p className="err">{error}</p>}
+      {error && <p className="error">{error}</p>}
       <button className="btn primary" type="submit" disabled={busy}>
         {busy ? "Creating…" : "Create account"}
       </button>
+      <GoogleSignIn text="signup_with" onError={setError} />
       <p>
         Already have an account? <Link href="/auth/login">Sign in</Link>
       </p>

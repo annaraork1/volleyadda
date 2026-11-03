@@ -175,9 +175,13 @@ export function AdminSeasons() {
         <button
           className="btn gold"
           type="button"
-          disabled={busy || !key || !name}
+          disabled={busy || !key || !name || !logo || logo === DEFAULT_LOGO}
           aria-busy={busy}
           onClick={async () => {
+            if (!logo || logo === DEFAULT_LOGO) {
+              flash("Upload a tournament logo first");
+              return;
+            }
             const ok = await run(
               "createTournament",
               {

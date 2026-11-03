@@ -25,9 +25,27 @@ export type { AuctionState, AuctionStatus, AuctionBid, AuctionTeamState } from "
 export { defaultPracticeFormat } from "../../lib/practiceTypes";
 export type {
   PracticeMatchPublic,
+  PracticePlayer,
+  PracticeScorerPublic,
   PracticeSummary,
   PracticeLiveRef,
 } from "../../lib/practiceTypes";
+
+export {
+  filterCatalogPlayers,
+  filterCatalogTeams,
+  type CatalogPlayer,
+  type CatalogTeam,
+  type MasterCatalog,
+} from "../../lib/catalog";
+
+export {
+  formatTargetsText,
+  parseTargetsText,
+  targetsFitBestOf,
+  targetsPlaceholder,
+  trimTargetsToBestOf,
+} from "../../lib/targetsInput";
 
 export type {
   AppState,
@@ -54,3 +72,24 @@ export type {
 } from "../../lib/types";
 
 export type { GalleryStatus } from "../../lib/galleryTypes";
+
+export {
+  pressureBallForSide,
+  pressureBalls,
+  PRESSURE_BALL_LABEL,
+  type PressureBall,
+} from "../../lib/pressureBall";
+
+export {
+  COARSE_LABELS,
+  COARSE_RESULTS,
+  enumeratePathsToRank,
+  formatPathLabel,
+  leagueResultsSig,
+  projectRace,
+  type CoarseResult,
+  type OutcomeMap,
+  type RacePath,
+} from "../../lib/raceWhatIf";
+
+export { PLAYOFF_QUALIFY } from "../../lib/qualify";

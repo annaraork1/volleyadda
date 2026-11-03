@@ -1,4 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import {
   authDeleteAccount,
   authLogin,
@@ -10,6 +12,9 @@ import {
   setUnauthorizedHandler,
   type PublicUser,
 } from "../api/client";
+import { joinApiUrl } from "../api/absoluteUrl";
+
+WebBrowser.maybeCompleteAuthSession();
 
 interface AuthCtx {
   /** True once the stored token has been checked. */
@@ -21,6 +26,7 @@ interface AuthCtx {
   needsVerify: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -88,6 +94,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSuperadmin(!!r.superadmin);
   }, []);
 
+  const loginWithGoogle = useCallback(async () => {
+    const returnTo = Linking.createURL("auth/google");
+    const startUrl = joinApiUrl(`/api/auth/google/start?return=${encodeURIComponent(returnTo)}`);
+    const result = await WebBrowser.openAuthSessionAsync(startUrl, returnTo);
+    if (result.type !== "success" || !("url" in result) || !result.url) {
+      throw new Error("Google sign-in cancelled");
+    }
+    const parsed = Linking.parse(result.url);
+    const q = (parsed.queryParams || {}) as Record<string, string | undefined>;
+    if (q.error) throw new Error(String(q.error));
+    const token = q.token ? String(q.token) : "";
+    if (!token) throw new Error("Google sign-in did not return a session");
+    await setToken(token);
+    const me = await authMe();
+    setUser(me.user);
+    setSuperadmin(!!me.superadmin);
+  }, []);
+
   const logout = useCallback(async () => {
     await authLogout();
     clear();
@@ -107,11 +131,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       needsVerify: !!user && !user.emailVerified,
       login,
       signup,
+      loginWithGoogle,
       logout,
       deleteAccount,
       refresh,
     }),
-    [ready, user, superadmin, login, signup, logout, deleteAccount, refresh],
+    [ready, user, superadmin, login, signup, loginWithGoogle, logout, deleteAccount, refresh],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

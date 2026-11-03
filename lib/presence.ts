@@ -1,19 +1,12 @@
 import { Redis } from "@upstash/redis";
+import { nsKey, redisCredentials } from "./redisNs.ts";
 
 /**
  * Approximate live spectator presence via short-lived heartbeats.
  * Redis ZSET score = expiry ms; memory Map for local/dev without Redis.
  */
-const url =
-  process.env.KV_REST_API_URL ||
-  process.env.UPSTASH_REDIS_REST_URL ||
-  process.env.tnhvpl_KV_REST_API_URL;
-const token =
-  process.env.KV_REST_API_TOKEN ||
-  process.env.UPSTASH_REDIS_REST_TOKEN ||
-  process.env.tnhvpl_KV_REST_API_TOKEN;
-
-const redis = url && token ? new Redis({ url, token }) : null;
+const creds = redisCredentials();
+const redis = creds ? new Redis({ url: creds.url, token: creds.token }) : null;
 
 /** How long a heartbeat keeps a viewer alive (ms). */
 export const PRESENCE_TTL_MS = 35_000;
@@ -30,8 +23,8 @@ const COUNT_CACHE_MS = 1_500;
 export type PresenceKind = "t" | "p";
 
 export function presenceKey(kind: PresenceKind, id: string, season?: string | null): string {
-  if (kind === "p") return `presence:p:${id}`;
-  return `presence:t:${season || "default"}:${id}`;
+  const logical = kind === "p" ? `presence:p:${id}` : `presence:t:${season || "default"}:${id}`;
+  return nsKey(logical);
 }
 
 function pruneMem(bucket: Map<string, number>, now: number) {

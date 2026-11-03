@@ -1,13 +1,12 @@
 import React, { useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Btn, Card, ErrorText, Field, H1, Muted, Screen, notify, useAction } from "../../src/components/ui";
-import { authForgot } from "../../src/api/client";
+import { Btn, Card, ErrorText, Field, H1, Muted, Screen, useAction } from "../../src/components/ui";
 import { useAuth } from "../../src/context/AuthContext";
 
 export default function Login() {
   const router = useRouter();
   const { next } = useLocalSearchParams<{ next?: string }>();
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const { busy, error, run } = useAction();
@@ -27,15 +26,12 @@ export default function Login() {
     if (ok) done();
   };
 
-  const forgot = async () => {
-    if (!email.includes("@")) {
-      notify("Enter your email first", "Type your account email above, then tap “Forgot password”.");
-      return;
-    }
-    await run(async () => {
-      await authForgot(email.trim());
-      notify("Check your inbox", "If that email has an account, we sent a reset link.");
+  const google = async () => {
+    const ok = await run(async () => {
+      await loginWithGoogle();
+      return true;
     });
+    if (ok) done();
   };
 
   return (
@@ -64,7 +60,13 @@ export default function Login() {
         />
         <ErrorText>{error}</ErrorText>
         <Btn title="Sign in" onPress={submit} loading={busy} disabled={!email.trim() || !password} />
-        <Btn title="Forgot password?" variant="ghost" onPress={forgot} disabled={busy} />
+        <Btn title="Continue with Google" variant="secondary" onPress={google} loading={busy} disabled={busy} />
+        <Btn
+          title="Forgot password?"
+          variant="ghost"
+          onPress={() => router.push({ pathname: "/auth/forgot", params: email.trim() ? { email: email.trim() } : {} })}
+          disabled={busy}
+        />
       </Card>
       <Btn
         title="Create an account"
