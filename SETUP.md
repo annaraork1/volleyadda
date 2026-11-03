@@ -35,7 +35,7 @@
 - Sign in again (Google/email); old bare `va:*` keys are unused.
 - TNH at https://tnhvpl.vercel.app is unchanged (still uses its own unprefixed / `tnhvpl:*` keys).
 
-## Mobile
+## Mobile 
 
 ```bash
 cd mobile
