@@ -211,7 +211,7 @@ export function Field({
   ...rest
 }: TextInputProps & { label?: string; hint?: string; style?: StyleProp<ViewStyle> }) {
   return (
-    <View style={[{ gap: 6 }, style]}>
+    <View style={[styles.field, style]}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         placeholderTextColor={colors.muted}
@@ -442,7 +442,9 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: space.lg,
-    gap: space.sm,
+    gap: space.md,
+    width: "100%",
+    alignSelf: "stretch",
   },
   h1: {
     color: colors.text,
@@ -471,6 +473,11 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
   },
   btnText: { fontSize: 16, fontFamily: fonts.bodyBold },
+  field: {
+    gap: 6,
+    width: "100%",
+    alignSelf: "stretch",
+  },
   label: { color: colors.muted, fontSize: 13, fontFamily: fonts.bodySemi },
   hint: { color: colors.muted, fontSize: 12, fontFamily: fonts.body },
   input: {
@@ -483,6 +490,8 @@ export const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontFamily: fonts.body,
+    width: "100%",
+    alignSelf: "stretch",
   },
   chip: {
     paddingHorizontal: 14,

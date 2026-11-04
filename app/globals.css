@@ -503,12 +503,53 @@ table.standings { width: 100%; border-collapse: collapse; font-variant-numeric: 
 /* bracket */
 .bracket { display: grid; gap: 8px; }
 
-/* forms */
+/* forms — stacked label above control everywhere (unless .row / .btn) */
 .pingate { max-width: 360px; margin: 40px auto; display: grid; gap: 12px; text-align: center; }
 .pingate input { text-align: center; font-size: 24px; letter-spacing: 0.3em; }
-.form { display: grid; gap: 10px; }
-.form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.form { display: grid; gap: 12px; width: 100%; min-width: 0; }
+.form label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+
+/* Label + text/select/file/textarea: always stacked, full-width control */
+label:not(.row):not(.btn):has(> input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])),
+label:not(.row):not(.btn):has(> select),
+label:not(.row):not(.btn):has(> textarea) {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  width: 100%;
+  min-width: 0;
+}
+label:not(.row):not(.btn):has(> input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])) > input,
+label:not(.row):not(.btn):has(> select) > select,
+label:not(.row):not(.btn):has(> textarea) > textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Checkbox / radio: keep control + text on one line */
+label:not(.row):not(.btn):has(> input[type="checkbox"]):not(:has(> select)):not(:has(> textarea)):not(:has(> input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]))),
+label:not(.row):not(.btn):has(> input[type="radio"]):not(:has(> select)):not(:has(> textarea)):not(:has(> input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]))) {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cream);
+  width: 100%;
+}
+label:not(.row):not(.btn):has(> input[type="checkbox"]) > input[type="checkbox"],
+label:not(.row):not(.btn):has(> input[type="radio"]) > input[type="radio"] {
+  width: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+select { max-width: 100%; }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--cream); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-weight: 600; z-index: 50; max-width: calc(100% - 32px); text-align: center; }
 .rules ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .rules li::marker { color: var(--gold); font-weight: 700; }
@@ -801,6 +842,13 @@ table.standings { width: 100%; border-collapse: collapse; font-variant-numeric: 
 .sethist { align-items: flex-start; }
 .fields > label, .fields > div { min-width: 0; }
 .fields input, .fields select { width: 100%; }
+.fields > label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
 input[type="color"] { padding: 2px; height: 42px; width: 72px; cursor: pointer; }
 input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--gold); }
 

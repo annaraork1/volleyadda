@@ -109,7 +109,7 @@ export default function CreateTournamentPage() {
   };
 
   return (
-    <div className="stack" style={{ gap: 16, maxWidth: 560 }}>
+    <div className="stack" style={{ gap: 16, maxWidth: 560, width: "100%" }}>
       <h1>Create tournament</h1>
       <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
         {WIZARD.map((label, i) => (
@@ -126,7 +126,7 @@ export default function CreateTournamentPage() {
       </div>
 
       {step === 0 && (
-        <div className="card stack">
+        <div className="card form">
           <h2>Details</h2>
           <label>
             Name
@@ -177,7 +177,7 @@ export default function CreateTournamentPage() {
             </select>
           </label>
           <label>
-            <input type="checkbox" checked={registrationOpen} onChange={(e) => setRegistrationOpen(e.target.checked)} />{" "}
+            <input type="checkbox" checked={registrationOpen} onChange={(e) => setRegistrationOpen(e.target.checked)} />
             Registration open at create
           </label>
           <label>

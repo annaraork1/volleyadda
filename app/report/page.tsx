@@ -43,31 +43,37 @@ function ReportForm() {
 
   if (done) {
     return (
-      <div className="card stack" style={{ maxWidth: 480, margin: "40px auto" }}>
-        <h1>Report sent</h1>
-        <p>Thanks. The VolleyAdda team will look at it.</p>
-        <Link href="/">Home</Link>
+      <div className="auth-page">
+        <div className="card auth-card">
+          <h1>Report sent</h1>
+          <p>Thanks. The VolleyAdda team will look at it.</p>
+          <p className="auth-links">
+            <Link href="/">Home</Link>
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <form className="card stack" onSubmit={submit} style={{ maxWidth: 480, margin: "40px auto" }}>
-      <h1>Report a problem</h1>
-      <p className="muted">You need to be signed in.</p>
-      <label>
-        What went wrong?
-        <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} required />
-      </label>
-      {error && (
-        <p className="err">
-          {error} {error.includes("Sign in") && <Link href="/auth/login?next=/report">Sign in</Link>}
-        </p>
-      )}
-      <button className="btn primary" type="submit" disabled={busy}>
-        Send
-      </button>
-    </form>
+    <div className="auth-page">
+      <form className="card auth-card" onSubmit={submit}>
+        <h1>Report a problem</h1>
+        <p>You need to be signed in.</p>
+        <label>
+          What went wrong?
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} required />
+        </label>
+        {error && (
+          <p className="error">
+            {error} {error.includes("Sign in") && <Link href="/auth/login?next=/report">Sign in</Link>}
+          </p>
+        )}
+        <button className="btn primary" type="submit" disabled={busy}>
+          Send
+        </button>
+      </form>
+    </div>
   );
 }
 
